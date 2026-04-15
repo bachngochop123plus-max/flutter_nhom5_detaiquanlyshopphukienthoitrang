@@ -1,0 +1,19 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'app.dart';
+import 'core/config/supabase_config.dart';
+import 'core/di/injection_container.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final supabaseConfig = SupabaseConfig.instance;
+  if (supabaseConfig.isConfigured) {
+    await Supabase.initialize(
+      url: supabaseConfig.url,
+      anonKey: supabaseConfig.anonKey,
+    );
+  }
+  await bootstrapDependencies();
+  runApp(const FashionShopApp());
+}

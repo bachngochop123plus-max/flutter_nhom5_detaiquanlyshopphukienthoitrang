@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Fashion Shop (Supabase)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "cwd": "${workspaceFolder}",
+            "flutterMode": "debug",
+            "toolArgs": [
+                "--dart-define=SUPABASE_URL=https://qkweoptutabbzulsrpas.supabase.co",
+                "--dart-define=SUPABASE_ANON_KEY=sb_publishable_yrhdw3sopoLnzl1Gz457Lw_Cl3-VLAn"
+            ]
+        },
+        {
+            "name": "Fashion Shop (Local)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "cwd": "${workspaceFolder}",
+            "flutterMode": "debug"
+        }
+    ]
+}
