@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
@@ -21,6 +23,9 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final catalogRepository = GetIt.instance<CatalogRepository>();
+    final isCacheFallback = catalogRepository.isUsingCacheFallback;
+
     final filteredProducts = _categoryFilter == null
         ? widget.products
         : widget.products
@@ -135,6 +140,35 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
+              if (isCacheFallback)
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3CD),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFFFD58A)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color(0xFFB26A00),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Dang hien thi du lieu cache cu. Kiem tra profile F5/ket noi Supabase/API neu du lieu khong moi.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: const Color(0xFF6B4100)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
