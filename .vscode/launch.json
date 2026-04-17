@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Fashion Shop (Supabase)",
+            "name": "Fashion Shop (Supabase - Default)",
             "request": "launch",
             "type": "dart",
             "program": "lib/main.dart",
@@ -11,6 +11,17 @@
             "toolArgs": [
                 "--dart-define=SUPABASE_URL=https://qkweoptutabbzulsrpas.supabase.co",
                 "--dart-define=SUPABASE_ANON_KEY=sb_publishable_yrhdw3sopoLnzl1Gz457Lw_Cl3-VLAn"
+            ]
+        },
+        {
+            "name": "Fashion Shop (Products API Fallback)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "cwd": "${workspaceFolder}",
+            "flutterMode": "debug",
+            "toolArgs": [
+                "--dart-define=PRODUCTS_API_URL=PUT_YOUR_PRODUCTS_JSON_URL_HERE"
             ]
         },
         {

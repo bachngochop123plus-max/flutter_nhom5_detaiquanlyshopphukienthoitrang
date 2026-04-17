@@ -1,16 +1,38 @@
 # detai_shopbanphukienthoitrang
 
-A new Flutter project.
+## Run with Supabase (recommended)
 
-## Getting Started
+The app uses an offline-first caching strategy with real-time sync:
 
-This project is a starting point for a Flutter application.
+1. **On app startup**: Load product list from SQLite cache instantly.
+2. **Real-time sync**: Listen to Supabase product changes (INSERT/UPDATE/DELETE).
+   - When any change detected → auto-fetch + cache to SQLite.
+   - All users see updates within seconds, no manual refresh needed.
+3. **In background**: Sync from Supabase to refresh data, then cache to SQLite.
+4. **Fallback chain**:
+   - Supabase (`SUPABASE_URL` + `SUPABASE_ANON_KEY`) - primary source with real-time
+   - `PRODUCTS_API_URL` - fallback when Supabase not configured
+   - Local SQLite cache - when network unavailable
 
-A few resources to get you started if this is your first Flutter project:
+**Benefits**:
+- App opens instantly (reads SQLite first).
+- Real-time updates when admin changes products (no manual refresh).
+- Reduces Supabase API requests (cached after first fetch).
+- Works offline with cached data.
+- Images load on-demand with separate caching (CachedNetworkImage).
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### VS Code
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Use launch profile `Fashion Shop (Supabase - Default)` in `.vscode/launch.json`.
+
+### Command line
+
+```bash
+flutter run --dart-define=SUPABASE_URL=https://your-project.supabase.co --dart-define=SUPABASE_ANON_KEY=your-anon-key
+```
+
+## Data Storage
+
+- **Product metadata** (name, price, category, gallery URLs): Synced to SQLite after Supabase fetch.
+- **Product images**: Not stored locally; loaded on-demand via URLs (cached by CachedNetworkImage).
+- **Real-time updates**: Automatic via Supabase realtime subscriptions; all users see changes within seconds.

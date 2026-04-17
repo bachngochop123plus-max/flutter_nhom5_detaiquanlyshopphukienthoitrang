@@ -24,6 +24,13 @@ class _AdminInventoryPageState extends State<AdminInventoryPage> {
     _products = _catalogRepository.getProducts();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh products when page is popped back from editor
+    _reloadProducts();
+  }
+
   Future<void> _reloadProducts() async {
     if (!mounted) return;
     setState(() {
