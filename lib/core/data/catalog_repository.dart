@@ -13,54 +13,102 @@ class CatalogRepository {
   }) : _apiService = apiService,
        _databaseHelper = databaseHelper;
 
-  static const _fallbackProductsUrl =
-      'https://dummyjson.com/products?limit=100';
   static const _storageBucket = 'Img_products';
   static const _storageFolder = 'Img_Product';
 
   final ApiService _apiService;
   final DatabaseHelper _databaseHelper;
   List<Product> _memoryProducts = const [];
+  RealtimeChannel? _realtimeChannel;
 
   bool get _usesSupabase => SupabaseConfig.instance.isConfigured;
 
-  String get _productsUrl => ApiConfig.instance.hasProductsUrl
-      ? ApiConfig.instance.productsUrl
-      : _fallbackProductsUrl;
+  bool get _usesApi => !_usesSupabase && ApiConfig.instance.hasProductsUrl;
+
+  String get _productsUrl => ApiConfig.instance.productsUrl;
 
   Future<void> warmUp() async {
-    if (_usesSupabase) {
-      try {
-        _memoryProducts = await _fetchProductsFromSupabase();
-        return;
-      } catch (_) {
-        // Fall back to local cache below.
-      }
-    }
-
+    // Load from SQLite first for fast startup
     final localProducts = await _databaseHelper.getCatalogProducts();
     if (localProducts.isNotEmpty) {
       _memoryProducts = localProducts;
     }
 
-    try {
-      if (_usesSupabase) {
-        return;
-      }
-
-      final remoteProducts = await _fetchProductsFromApi();
-      if (remoteProducts.isNotEmpty) {
+    // Sync from Supabase in background (cache to SQLite)
+    if (_usesSupabase) {
+      try {
+        final remoteProducts = await _fetchProductsFromSupabase();
+        // Sync to SQLite for offline fallback
         await _databaseHelper.replaceCatalogProducts(remoteProducts);
         _memoryProducts = remoteProducts;
+        // Start real-time sync listener
+        startRealtimeSync();
+        return;
+      } catch (_) {
+        // Keep local cache as-is when Supabase unavailable.
+        return;
       }
-    } on ApiFailure {
-      // Keep local cache as-is when API is unavailable.
+    }
+
+    // Fallback to API JSON if Supabase not configured
+    if (_usesApi) {
+      try {
+        final remoteProducts = await _fetchProductsFromApi();
+        if (remoteProducts.isNotEmpty) {
+          await _databaseHelper.replaceCatalogProducts(remoteProducts);
+          _memoryProducts = remoteProducts;
+        }
+      } on ApiFailure {
+        // Keep local cache as-is when API unavailable.
+      }
+    }
+  }
+
+  /// Start real-time sync from Supabase products table
+  void startRealtimeSync() {
+    if (!_usesSupabase || _realtimeChannel != null) return;
+
+    final client = Supabase.instance.client;
+    _realtimeChannel = client.realtime.channel('realtime:public:products');
+
+    _realtimeChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'products',
+          callback: (payload) {
+            // Auto-sync on any product change (INSERT/UPDATE/DELETE)
+            _onSupabaseProductChange();
+          },
+        )
+        .subscribe();
+  }
+
+  /// Stop real-time sync listener
+  void stopRealtimeSync() {
+    if (_realtimeChannel != null) {
+      _realtimeChannel!.unsubscribe();
+      Supabase.instance.client.realtime.removeChannel(_realtimeChannel!);
+      _realtimeChannel = null;
+    }
+  }
+
+  /// Handle Supabase product change event
+  Future<void> _onSupabaseProductChange() async {
+    try {
+      final refreshed = await _fetchProductsFromSupabase();
+      await _databaseHelper.replaceCatalogProducts(refreshed);
+      _memoryProducts = refreshed;
+    } catch (_) {
+      // Ignore errors in background sync
     }
   }
 
   Future<List<Product>> refreshProducts() async {
     if (_usesSupabase) {
       final remoteProducts = await _fetchProductsFromSupabase();
+      // Sync to SQLite for offline fallback
+      await _databaseHelper.replaceCatalogProducts(remoteProducts);
       _memoryProducts = remoteProducts;
       return _memoryProducts;
     }
@@ -118,13 +166,21 @@ class CatalogRepository {
     return _memoryProducts;
   }
 
+  /// Cleanup resources (call when app terminates)
+  void dispose() {
+    stopRealtimeSync();
+  }
+
   Product byId(String id) =>
       getProducts().firstWhere((product) => product.id == id);
 
   Future<void> updateProduct(Product updated) async {
     if (_usesSupabase) {
       await _updateProductInSupabase(updated);
-      _memoryProducts = await _fetchProductsFromSupabase();
+      final refreshed = await _fetchProductsFromSupabase();
+      // Sync to SQLite cache after Supabase update
+      await _databaseHelper.replaceCatalogProducts(refreshed);
+      _memoryProducts = refreshed;
       return;
     }
 
@@ -137,7 +193,10 @@ class CatalogRepository {
   Future<Product> createProduct(Product draft) async {
     if (_usesSupabase) {
       final created = await _createProductInSupabase(draft);
-      _memoryProducts = await _fetchProductsFromSupabase();
+      final refreshed = await _fetchProductsFromSupabase();
+      // Sync to SQLite cache after Supabase create
+      await _databaseHelper.replaceCatalogProducts(refreshed);
+      _memoryProducts = refreshed;
       return created;
     }
 
@@ -149,7 +208,10 @@ class CatalogRepository {
   Future<void> deleteProduct(String productId) async {
     if (_usesSupabase) {
       await _deleteProductInSupabase(productId);
-      _memoryProducts = await _fetchProductsFromSupabase();
+      final refreshed = await _fetchProductsFromSupabase();
+      // Sync to SQLite cache after Supabase delete
+      await _databaseHelper.replaceCatalogProducts(refreshed);
+      _memoryProducts = refreshed;
       return;
     }
 
