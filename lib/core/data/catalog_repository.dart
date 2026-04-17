@@ -4,7 +4,10 @@ import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../config/supabase_config.dart';
 import 'database_helper.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+enum CatalogDataSource { unknown, supabase, api, sqliteCache }
 
 class CatalogRepository {
   CatalogRepository({
@@ -20,19 +23,54 @@ class CatalogRepository {
   final DatabaseHelper _databaseHelper;
   List<Product> _memoryProducts = const [];
   RealtimeChannel? _realtimeChannel;
+  CatalogDataSource _lastDataSource = CatalogDataSource.unknown;
+  bool _isUsingCacheFallback = false;
+  String? _lastWarmUpError;
 
   bool get _usesSupabase => SupabaseConfig.instance.isConfigured;
 
-  bool get _usesApi => !_usesSupabase && ApiConfig.instance.hasProductsUrl;
+  bool get _hasApiFallback => ApiConfig.instance.hasProductsUrl;
+
+  bool get _usesApi => !_usesSupabase && _hasApiFallback;
 
   String get _productsUrl => ApiConfig.instance.productsUrl;
 
+  CatalogDataSource get lastDataSource => _lastDataSource;
+
+  bool get isUsingCacheFallback => _isUsingCacheFallback;
+
+  String? get lastWarmUpError => _lastWarmUpError;
+
+  String get dataSourceLabel {
+    switch (_lastDataSource) {
+      case CatalogDataSource.supabase:
+        return 'Supabase';
+      case CatalogDataSource.api:
+        return 'Products API';
+      case CatalogDataSource.sqliteCache:
+        return 'SQLite cache';
+      case CatalogDataSource.unknown:
+        return 'Unknown';
+    }
+  }
+
+  String get runtimeSummary =>
+      'catalogSource=$dataSourceLabel, cacheFallback=$isUsingCacheFallback, '
+      'products=${_memoryProducts.length}';
+
   Future<void> warmUp() async {
-    // Load from SQLite first for fast startup
-    final localProducts = await _databaseHelper.getCatalogProducts();
+    // Read active cache first so hidden/inactive products do not leak into UI.
+    var localProducts = await _databaseHelper.getActiveCatalogProducts();
+    if (localProducts.isEmpty) {
+      localProducts = await _databaseHelper.getCatalogProducts();
+    }
     if (localProducts.isNotEmpty) {
       _memoryProducts = localProducts;
+      _lastDataSource = CatalogDataSource.sqliteCache;
     }
+
+    _isUsingCacheFallback = false;
+    _lastWarmUpError = null;
 
     // Sync from Supabase in background (cache to SQLite)
     if (_usesSupabase) {
@@ -41,11 +79,31 @@ class CatalogRepository {
         // Sync to SQLite for offline fallback
         await _databaseHelper.replaceCatalogProducts(remoteProducts);
         _memoryProducts = remoteProducts;
+        _lastDataSource = CatalogDataSource.supabase;
+        _isUsingCacheFallback = false;
         // Start real-time sync listener
         startRealtimeSync();
         return;
-      } catch (_) {
-        // Keep local cache as-is when Supabase unavailable.
+      } catch (error, stackTrace) {
+        _lastWarmUpError = error.toString();
+        debugPrint(
+          '[CatalogRepository] warmUp: Supabase sync failed, trying API fallback. '
+          'error=$error\n$stackTrace',
+        );
+        if (_hasApiFallback) {
+          try {
+            await refreshFromApiAndCache();
+            _isUsingCacheFallback = false;
+          } on ApiFailure catch (apiError) {
+            _isUsingCacheFallback = _memoryProducts.isNotEmpty;
+            debugPrint(
+              '[CatalogRepository] warmUp: API fallback also failed '
+              '(code=${apiError.code}): ${apiError.message}',
+            );
+          }
+        } else {
+          _isUsingCacheFallback = _memoryProducts.isNotEmpty;
+        }
         return;
       }
     }
@@ -57,10 +115,16 @@ class CatalogRepository {
         if (remoteProducts.isNotEmpty) {
           await _databaseHelper.replaceCatalogProducts(remoteProducts);
           _memoryProducts = remoteProducts;
+          _lastDataSource = CatalogDataSource.api;
+          _isUsingCacheFallback = false;
         }
-      } on ApiFailure {
+      } on ApiFailure catch (apiError) {
+        _lastWarmUpError = apiError.message;
+        _isUsingCacheFallback = _memoryProducts.isNotEmpty;
         // Keep local cache as-is when API unavailable.
       }
+    } else if (_memoryProducts.isNotEmpty) {
+      _isUsingCacheFallback = true;
     }
   }
 
@@ -99,6 +163,8 @@ class CatalogRepository {
       final refreshed = await _fetchProductsFromSupabase();
       await _databaseHelper.replaceCatalogProducts(refreshed);
       _memoryProducts = refreshed;
+      _lastDataSource = CatalogDataSource.supabase;
+      _isUsingCacheFallback = false;
     } catch (_) {
       // Ignore errors in background sync
     }
@@ -106,25 +172,54 @@ class CatalogRepository {
 
   Future<List<Product>> refreshProducts() async {
     if (_usesSupabase) {
-      final remoteProducts = await _fetchProductsFromSupabase();
-      // Sync to SQLite for offline fallback
-      await _databaseHelper.replaceCatalogProducts(remoteProducts);
-      _memoryProducts = remoteProducts;
-      return _memoryProducts;
+      try {
+        final remoteProducts = await _fetchProductsFromSupabase();
+        // Sync to SQLite for offline fallback
+        await _databaseHelper.replaceCatalogProducts(remoteProducts);
+        _memoryProducts = remoteProducts;
+        _lastDataSource = CatalogDataSource.supabase;
+        _isUsingCacheFallback = false;
+        return _memoryProducts;
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[CatalogRepository] refreshProducts: Supabase failed, trying API fallback. '
+          'error=$error\n$stackTrace',
+        );
+        if (_hasApiFallback) {
+          return refreshFromApiAndCache();
+        }
+        rethrow;
+      }
+    }
+
+    return refreshFromApiAndCache();
+  }
+
+  Future<List<Product>> refreshFromApiAndCache() async {
+    if (!_hasApiFallback) {
+      throw const ApiFailure(
+        message: 'Chua cau hinh PRODUCTS_API_URL cho API fallback',
+        code: 'API_FALLBACK_NOT_CONFIGURED',
+      );
     }
 
     final remoteProducts = await _fetchProductsFromApi();
     await _databaseHelper.replaceCatalogProducts(remoteProducts);
     _memoryProducts = remoteProducts;
+    _lastDataSource = CatalogDataSource.api;
+    _isUsingCacheFallback = false;
     return _memoryProducts;
   }
 
   Future<List<Product>> _fetchProductsFromApi() async {
     final payload = await _apiService.getJson(Uri.parse(_productsUrl));
-    final items = payload['products'];
+    final items = payload['products'] ?? payload['data'];
     if (items is! List) {
-      throw const ApiFailure(
-        message: 'API products khong dung dinh dang',
+      final payloadKeys = payload.keys.join(',');
+      throw ApiFailure(
+        message:
+            'API products khong dung dinh dang. Can list trong key "products" hoac "data" '
+            '(url=$_productsUrl, keys=[$payloadKeys])',
         code: 'INVALID_PRODUCTS_PAYLOAD',
       );
     }
