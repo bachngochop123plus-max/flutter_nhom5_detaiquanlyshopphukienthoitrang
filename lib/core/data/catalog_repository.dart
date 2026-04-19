@@ -1,5 +1,7 @@
+import 'dart:async';
 import '../errors/failure.dart';
 import '../models/product.dart';
+import '../models/product_category.dart';
 import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../config/supabase_config.dart';
@@ -22,6 +24,7 @@ class CatalogRepository {
   final ApiService _apiService;
   final DatabaseHelper _databaseHelper;
   List<Product> _memoryProducts = const [];
+  List<ProductCategory> _memoryCategories = const [];
   RealtimeChannel? _realtimeChannel;
   CatalogDataSource _lastDataSource = CatalogDataSource.unknown;
   bool _isUsingCacheFallback = false;
@@ -59,7 +62,6 @@ class CatalogRepository {
       'products=${_memoryProducts.length}';
 
   Future<void> warmUp() async {
-    // Read active cache first so hidden/inactive products do not leak into UI.
     var localProducts = await _databaseHelper.getActiveCatalogProducts();
     if (localProducts.isEmpty) {
       localProducts = await _databaseHelper.getCatalogProducts();
@@ -71,6 +73,9 @@ class CatalogRepository {
 
     _isUsingCacheFallback = false;
     _lastWarmUpError = null;
+
+    // Load categories in background
+    unawaited(loadCategories());
 
     // Sync from Supabase in background (cache to SQLite)
     if (_usesSupabase) {
@@ -259,6 +264,24 @@ class CatalogRepository {
 
   List<Product> getProducts() {
     return _memoryProducts;
+  }
+
+  List<ProductCategory> getCategories() {
+    return _memoryCategories;
+  }
+
+  Future<void> loadCategories() async {
+    if (_usesSupabase) {
+      try {
+        final categories = await _fetchCategoriesFromSupabase();
+        _memoryCategories = categories;
+      } catch (error, stackTrace) {
+        debugPrint(
+          '[CatalogRepository] loadCategories: Failed to fetch categories. '
+          'error=$error\n$stackTrace',
+        );
+      }
+    }
   }
 
   /// Cleanup resources (call when app terminates)
@@ -743,6 +766,20 @@ class CatalogRepository {
     }
 
     return db.insert(DatabaseHelper.categoriesTable, {'name': categoryName});
+  }
+
+  Future<List<ProductCategory>> _fetchCategoriesFromSupabase() async {
+    final client = Supabase.instance.client;
+    final categoryRows =
+        await client.from('categories').select().order('id', ascending: true)
+            as List<dynamic>;
+
+    return categoryRows
+        .map(
+          (row) =>
+              ProductCategory.fromMap(Map<String, dynamic>.from(row as Map)),
+        )
+        .toList(growable: false);
   }
 
   Future<int> _resolveCategoryId(
