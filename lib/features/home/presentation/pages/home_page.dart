@@ -8,6 +8,7 @@ import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
+import '../widgets/product_search_bar.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.products});
@@ -20,17 +21,57 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   String? _categoryFilter;
+  String _searchQuery = '';
+  double? _minPrice;
+  double? _maxPrice;
+
+  List<Product> _getFilteredProducts(List<Product> products) {
+    var filtered = products;
+
+    // Filter by search query
+    if (_searchQuery.isNotEmpty) {
+      filtered = filtered
+          .where(
+            (product) =>
+                product.name.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ) ||
+                product.description.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+          )
+          .toList();
+    }
+
+    // Filter by price range
+    if (_minPrice != null) {
+      filtered = filtered
+          .where((product) => product.price >= _minPrice!)
+          .toList();
+    }
+    if (_maxPrice != null) {
+      filtered = filtered
+          .where((product) => product.price <= _maxPrice!)
+          .toList();
+    }
+
+    // Filter by category
+    if (_categoryFilter != null) {
+      filtered = filtered
+          .where((product) => product.category == _categoryFilter)
+          .toList(growable: false);
+    }
+
+    return filtered;
+  }
 
   @override
   Widget build(BuildContext context) {
     final catalogRepository = GetIt.instance<CatalogRepository>();
     final isCacheFallback = catalogRepository.isUsingCacheFallback;
+    final categories = catalogRepository.getCategories();
 
-    final filteredProducts = _categoryFilter == null
-        ? widget.products
-        : widget.products
-              .where((product) => product.category == _categoryFilter)
-              .toList(growable: false);
+    final filteredProducts = _getFilteredProducts(widget.products);
 
     return BlocBuilder<AuthCubit, AuthState>(
       builder: (context, authState) {
@@ -169,9 +210,28 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+              // Search Bar
+              SliverToBoxAdapter(
+                child: ProductSearchBar(
+                  onSearch: (query, {minPrice, maxPrice}) {
+                    setState(() {
+                      _searchQuery = query;
+                      _minPrice = minPrice;
+                      _maxPrice = maxPrice;
+                    });
+                  },
+                  onPriceRangeChanged: (minPrice, maxPrice) {
+                    setState(() {
+                      _minPrice = minPrice;
+                      _maxPrice = maxPrice;
+                    });
+                  },
+                ),
+              ),
+              // Categories
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surface,
@@ -189,35 +249,92 @@ class _HomePageState extends State<HomePage> {
                             onSelected: (_) =>
                                 setState(() => _categoryFilter = null),
                           ),
-                          ...['Đồng hồ', 'Kính mắt', 'Nhẫn', 'Túi xách'].map(
-                            (category) => ChoiceChip(
-                              label: Text(category),
-                              selected: _categoryFilter == category,
-                              onSelected: (_) =>
-                                  setState(() => _categoryFilter = category),
+                          if (categories.isEmpty)
+                            ...[
+                              'Túi Xách Thời Trang',
+                              'Kính Mắt Gentry',
+                              'Đồng Hồ Cao Cấp',
+                              'Trang Sức Quý Phái',
+                              'Mũ & Nón Thời Trang',
+                            ].map(
+                              (category) => ChoiceChip(
+                                label: Text(category),
+                                selected: _categoryFilter == category,
+                                onSelected: (_) =>
+                                    setState(() => _categoryFilter = category),
+                              ),
+                            )
+                          else
+                            ...categories.map(
+                              (category) => ChoiceChip(
+                                label: Text(category.name),
+                                selected: _categoryFilter == category.name,
+                                onSelected: (_) => setState(
+                                  () => _categoryFilter = category.name,
+                                ),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 16,
-                    childAspectRatio: 0.72,
+              // Result count
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Text(
+                    'Kết quả: ${filteredProducts.length} sản phẩm',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final product = filteredProducts[index];
-                    return _ProductCard(product: product);
-                  }, childCount: filteredProducts.length),
                 ),
               ),
+              // Products grid
+              if (filteredProducts.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.shopping_bag_outlined,
+                            size: 64,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Không tìm thấy sản phẩm',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Vui lòng thử lại với bộ lọc khác',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.all(16),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 0.72,
+                        ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final product = filteredProducts[index];
+                      return _ProductCard(product: product);
+                    }, childCount: filteredProducts.length),
+                  ),
+                ),
             ],
           ),
         );

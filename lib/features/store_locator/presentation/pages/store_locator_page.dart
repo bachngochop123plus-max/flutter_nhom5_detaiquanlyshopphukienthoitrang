@@ -48,7 +48,9 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
     }
 
     final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      ),
     );
     if (!mounted) {
       return;
@@ -98,7 +100,7 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: DropdownButtonFormField<StoreBranch>(
-              value: _selectedBranch,
+              initialValue: _selectedBranch,
               decoration: const InputDecoration(labelText: 'Chọn chi nhánh'),
               items: _branches
                   .map(
