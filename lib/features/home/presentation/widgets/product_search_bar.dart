@@ -79,7 +79,7 @@ class _ProductSearchBarState extends State<ProductSearchBar> {
                   builder: (BuildContext context, SearchController controller) {
                     return SearchBar(
                       controller: _searchController,
-                      padding: const MaterialStatePropertyAll<EdgeInsets>(
+                      padding: const WidgetStatePropertyAll<EdgeInsets>(
                         EdgeInsets.symmetric(horizontal: 16),
                       ),
                       onChanged: (_) => _performSearch(),

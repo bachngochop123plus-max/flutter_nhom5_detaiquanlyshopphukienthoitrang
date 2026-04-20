@@ -127,7 +127,7 @@ class _AdminInventoryPageState extends State<AdminInventoryPage> {
                       Expanded(
                         child: ListView.separated(
                           itemCount: _products.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
                           itemBuilder: (context, index) {
                             final product = _products[index];
                             return ListTile(

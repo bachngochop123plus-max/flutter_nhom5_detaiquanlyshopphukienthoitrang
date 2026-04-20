@@ -8,8 +8,8 @@ class AppTheme {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppColors.luxuryGold,
       brightness: Brightness.light,
-      background: AppColors.whiteSilk,
-      surface: Colors.white,
+      surface: AppColors.whiteSilk,
+      surfaceContainer: Colors.white,
     );
 
     return ThemeData(
@@ -40,8 +40,8 @@ class AppTheme {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppColors.luxuryGold,
       brightness: Brightness.dark,
-      background: AppColors.deepBlack,
-      surface: const Color(0xFF1B1B1B),
+      surface: AppColors.deepBlack,
+      surfaceContainer: const Color(0xFF1B1B1B),
     );
 
     return ThemeData(
