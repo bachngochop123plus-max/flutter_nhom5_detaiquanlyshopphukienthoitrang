@@ -15,8 +15,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController(text: 'demo@shop.com');
-  final _passwordController = TextEditingController(text: '123456');
+  final _emailController = TextEditingController(text: 'bachngochop1234@gmail.com');
+  final _passwordController = TextEditingController(text: '123');
   bool _isSubmitting = false;
 
   Future<void> _login({required bool requireAdmin}) async {
