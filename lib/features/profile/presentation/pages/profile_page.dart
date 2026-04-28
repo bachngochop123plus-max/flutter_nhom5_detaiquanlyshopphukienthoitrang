@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Đã thêm
 import '../../../../core/services/device_service.dart';
 import '../../../../core/widgets/base_screen.dart';
+import 'edit_profile_page.dart'; // Đã thêm
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -16,7 +18,27 @@ class _ProfilePageState extends State<ProfilePage> {
   List<ContactEntry> _contacts = const [];
   bool _loading = false;
 
-  // Giữ nguyên logic xử lý để tránh xung đột
+  // --- BIẾN LƯU THÔNG TIN KHÁCH HÀNG ---
+  String _fullName = 'Đang tải...';
+  String _phoneNumber = 'Chưa cập nhật';
+  String _address = 'Chưa có địa chỉ';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData(); // Tự động load khi khởi tạo
+  }
+
+  // --- LOGIC ĐỌC DỮ LIỆU "MÃI MÃI" ---
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _fullName = prefs.getString('user_name') ?? 'Bach Ngoc Hop';
+      _phoneNumber = prefs.getString('user_phone') ?? 'Chưa cập nhật SĐT';
+      _address = prefs.getString('user_address') ?? 'Chưa có địa chỉ';
+    });
+  }
+
   Future<void> _captureAvatar() async {
     setState(() => _loading = true);
     final avatarPath = await _deviceService.captureAvatar();
@@ -54,16 +76,25 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
               decoration: BoxDecoration(
-                color: colorScheme.surfaceVariant.withOpacity(0.3),
+                color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
                 borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
               ),
               child: Column(
                 children: [
                   _buildAvatar(colorScheme),
                   const SizedBox(height: 16),
-                  Text('Bach Ngoc Hop', style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                  Text('Lập trình viên Mobile', style: textTheme.bodyMedium?.copyWith(color: colorScheme.outline)),
-                  const SizedBox(height: 24),
+                  // Hiển thị Tên động từ bộ nhớ
+                  Text(_fullName, 
+                    style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  // Hiển thị SĐT/Job động
+                  Text(_phoneNumber, 
+                    style: textTheme.bodyMedium?.copyWith(color: colorScheme.outline)),
+                  
+                  const SizedBox(height: 16),
+                  // Nút chuyển sang trang Chỉnh sửa
+                  _buildEditButton(colorScheme),
+                  
+                  const SizedBox(height: 12),
                   _buildActionButtons(colorScheme),
                 ],
               ),
@@ -101,14 +132,34 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           
-          // Padding dưới cùng
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
     );
   }
 
-  // --- UI Components nhỏ để code sạch hơn ---
+  // --- WIDGET NÚT CHỈNH SỬA (MỚI THÊM) ---
+  Widget _buildEditButton(ColorScheme colorScheme) {
+    return OutlinedButton.icon(
+      onPressed: () async {
+        // Đợi kết quả từ trang Edit trả về
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const EditProfilePage()),
+        );
+        // Nếu lưu thành công (result == true), cập nhật lại giao diện
+        if (result == true) {
+          _loadUserData();
+        }
+      },
+      style: OutlinedButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        side: BorderSide(color: colorScheme.primary.withOpacity(0.5)),
+      ),
+      icon: const Icon(Icons.edit_note, size: 18),
+      label: const Text('Thiết lập tài khoản'),
+    );
+  }
 
   Widget _buildAvatar(ColorScheme colorScheme) {
     return Stack(
@@ -193,7 +244,7 @@ class _ProfilePageState extends State<ProfilePage> {
           icon: const Icon(Icons.send_rounded, size: 20),
           onPressed: () => _deviceService.openSms(
             contact.phoneNumber,
-            message: 'Mời bạn trải nghiệm ứng dụng phụ kiện thời trang của mình.',
+            message: 'Mời bạn trải nghiệm ứng dụng mua sắm phụ kiện thời trang của mình nhé!',
           ),
         ),
       ),
