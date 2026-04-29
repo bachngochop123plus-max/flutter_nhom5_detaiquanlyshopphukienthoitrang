@@ -28,6 +28,9 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
 
   late StoreBranch _selectedBranch;
   LatLng _currentLocation = const LatLng(10.7769, 106.7009);
+  
+  // Bộ điều khiển để thao tác với bản đồ
+  GoogleMapController? _mapController;
 
   @override
   void initState() {
@@ -37,19 +40,25 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
   }
 
   Future<void> _loadLocation() async {
+    // 1. Kiểm tra quyền truy cập vị trí
     final permission = await Permission.locationWhenInUse.request();
     if (!permission.isGranted) {
       return;
     }
 
+    // 2. Kiểm tra dịch vụ định vị (GPS) có đang bật không
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       return;
     }
 
+    // 3. Lấy vị trí hiện tại (Đã cập nhật theo chuẩn mới để xóa gạch vàng)
     final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
     );
+
     if (!mounted) {
       return;
     }
@@ -61,6 +70,7 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Vẽ đường thẳng từ bạn đến chi nhánh
     final polyline = Polyline(
       polylineId: const PolylineId('route'),
       color: Theme.of(context).colorScheme.primary,
@@ -68,11 +78,13 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
       points: [_currentLocation, _selectedBranch.position],
     );
 
+    // Tạo các điểm đánh dấu trên bản đồ
     final markers = {
       Marker(
         markerId: const MarkerId('current'),
         position: _currentLocation,
         infoWindow: const InfoWindow(title: 'Vị trí của bạn'),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
       ),
       Marker(
         markerId: MarkerId(_selectedBranch.name),
@@ -81,14 +93,15 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
       ),
     };
 
-    final distanceKm =
-        Geolocator.distanceBetween(
+    // Tính toán khoảng cách thực tế
+    final distanceKm = Geolocator.distanceBetween(
           _currentLocation.latitude,
           _currentLocation.longitude,
           _selectedBranch.position.latitude,
           _selectedBranch.position.longitude,
-        ) /
-        1000;
+        ) / 1000;
+
+    // Ước tính thời gian di chuyển (giả định 25km/h)
     final estimatedMinutes = (distanceKm / 25 * 60).round();
 
     return BaseScreen(
@@ -99,7 +112,10 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
             padding: const EdgeInsets.all(16),
             child: DropdownButtonFormField<StoreBranch>(
               value: _selectedBranch,
-              decoration: const InputDecoration(labelText: 'Chọn chi nhánh'),
+              decoration: const InputDecoration(
+                labelText: 'Chọn chi nhánh',
+                border: OutlineInputBorder(),
+              ),
               items: _branches
                   .map(
                     (branch) => DropdownMenuItem(
@@ -107,13 +123,18 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
                       child: Text(branch.name),
                     ),
                   )
-                  .toList(growable: false),
+                  .toList(),
               onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
+                if (value == null) return;
 
-                setState(() => _selectedBranch = value);
+                setState(() {
+                  _selectedBranch = value;
+                });
+
+                // Di chuyển camera bản đồ đến chi nhánh được chọn
+                _mapController?.animateCamera(
+                  CameraUpdate.newLatLngZoom(value.position, 14),
+                );
               },
             ),
           ),
@@ -144,10 +165,15 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
                 target: _selectedBranch.position,
                 zoom: 13,
               ),
+              onMapCreated: (controller) {
+                _mapController = controller;
+              },
               markers: markers,
               polylines: {polyline},
               myLocationEnabled: true,
               myLocationButtonEnabled: true,
+              zoomControlsEnabled: true,
+              mapToolbarEnabled: true,
             ),
           ),
         ],
@@ -165,14 +191,26 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              title, 
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text(value, style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              value, 
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
           ],
         ),
       ),
