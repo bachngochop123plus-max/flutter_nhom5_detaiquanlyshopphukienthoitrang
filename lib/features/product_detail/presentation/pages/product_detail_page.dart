@@ -150,6 +150,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                         setState(() => _selectedSize = value),
                   ),
                   const SizedBox(height: 24),
+
                   Row(
                     children: [
                       Expanded(
