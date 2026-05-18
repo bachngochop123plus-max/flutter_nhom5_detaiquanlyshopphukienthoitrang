@@ -117,4 +117,18 @@ class CartCubit extends Cubit<CartState> {
   void clear() => emit(CartState.initial());
 
   Product getProduct(String id) => _catalogRepository.byId(id);
+  void updateVariant(String productId, {String? color, String? size}) {
+    final current = Map<String, CartItem>.from(state.items);
+
+    final item = current[productId];
+
+    if (item == null) return;
+
+    current[productId] = item.copyWith(
+      selectedColor: color,
+      selectedSize: size,
+    );
+
+    emit(state.copyWith(items: current));
+  }
 }
