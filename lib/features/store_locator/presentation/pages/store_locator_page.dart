@@ -98,8 +98,12 @@ class _StoreLocatorPageState extends State<StoreLocatorPage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: DropdownButtonFormField<StoreBranch>(
+              // Đã gộp xung đột: Giữ 'value' cho logic và 'OutlineInputBorder' cho UI
               value: _selectedBranch,
-              decoration: const InputDecoration(labelText: 'Chọn chi nhánh'),
+              decoration: const InputDecoration(
+                labelText: 'Chọn chi nhánh',
+                border: OutlineInputBorder(),
+              ),
               items: _branches
                   .map(
                     (branch) => DropdownMenuItem(
