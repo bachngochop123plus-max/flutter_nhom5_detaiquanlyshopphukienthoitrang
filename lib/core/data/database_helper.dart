@@ -1046,6 +1046,98 @@ class DatabaseHelper {
     );
   }
 
+  // ── Admin order queries ────────────────────────────────────────────────────
+
+  /// All orders for admin, optionally filtered by date range (inclusive).
+  /// Joins [usersTable] for customer name and email.
+  Future<List<Map<String, Object?>>> getAdminOrders({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+
+    final conditions = <String>[];
+    final args = <Object>[];
+
+    if (from != null) {
+      conditions.add('o.order_date >= ?');
+      args.add(
+        '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')} 00:00:00',
+      );
+    }
+    if (to != null) {
+      conditions.add('o.order_date <= ?');
+      args.add(
+        '${to.year.toString().padLeft(4, '0')}-'
+        '${to.month.toString().padLeft(2, '0')}-'
+        '${to.day.toString().padLeft(2, '0')} 23:59:59',
+      );
+    }
+
+    final where =
+        conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT
+        o.*,
+        u.full_name AS customer_name,
+        u.email     AS customer_email
+      FROM $ordersTable o
+      LEFT JOIN $usersTable u ON u.id = o.user_id
+      $where
+      ORDER BY o.order_date DESC
+      ''',
+      args,
+    );
+  }
+
+  /// Full order detail including items, product name, color, size, thumbnail.
+  Future<Map<String, Object?>?> getOrderWithItems(int orderId) async {
+    final db = await database;
+
+    final orderRows = await db.rawQuery(
+      '''
+      SELECT
+        o.*,
+        u.full_name AS customer_name,
+        u.email     AS customer_email,
+        u.phone     AS customer_phone,
+        u.address   AS customer_address
+      FROM $ordersTable o
+      LEFT JOIN $usersTable u ON u.id = o.user_id
+      WHERE o.id = ?
+      LIMIT 1
+      ''',
+      [orderId],
+    );
+    if (orderRows.isEmpty) return null;
+
+    final itemRows = await db.rawQuery(
+      '''
+      SELECT
+        oi.*,
+        pv.color,
+        pv.size,
+        p.name      AS product_name,
+        p.thumbnail AS thumbnail
+      FROM $orderItemsTable oi
+      JOIN $productVariantsTable pv ON pv.id = oi.variant_id
+      JOIN $productsTable        p  ON p.id  = pv.product_id
+      WHERE oi.order_id = ?
+      ORDER BY oi.id ASC
+      ''',
+      [orderId],
+    );
+
+    return {
+      ...orderRows.first,
+      'order_items': itemRows,
+    };
+  }
+
   /// Places an order and decrements stock atomically.
   Future<int> placeOrder({
     required int userId,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get_it/get_it.dart';
 
 import 'core/router/app_router.dart';
@@ -27,6 +28,15 @@ class FashionShopApp extends StatelessWidget {
         darkTheme: AppTheme.dark,
         themeMode: ThemeMode.system,
         routerConfig: buildAppRouter(authCubit: authCubit),
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('vi'),
+          Locale('en'),
+        ],
       ),
     );
   }
