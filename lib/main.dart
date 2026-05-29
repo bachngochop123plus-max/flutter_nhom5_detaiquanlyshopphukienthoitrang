@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
@@ -10,7 +9,6 @@ import 'core/di/injection_container.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('vi'); // cần cho DateFormat với locale 'vi'
   const launchProfile = String.fromEnvironment(
     'APP_PROFILE',
     defaultValue: 'UNSPECIFIED',
