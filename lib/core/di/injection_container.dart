@@ -32,5 +32,4 @@ Future<void> bootstrapDependencies() async {
   );
 
   await getIt<DatabaseHelper>().init();
-  await getIt<CatalogRepository>().warmUp();
 }

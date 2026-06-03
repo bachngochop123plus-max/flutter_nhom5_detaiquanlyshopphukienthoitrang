@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -11,9 +13,14 @@ import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../widgets/product_search_bar.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.products});
+  const HomePage({
+    super.key,
+    required this.products,
+    required this.isOffline,
+  });
 
   final List<Product> products;
+  final bool isOffline;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -24,6 +31,101 @@ class _HomePageState extends State<HomePage> {
   String _searchQuery = '';
   double? _minPrice;
   double? _maxPrice;
+
+  late bool _currentOfflineState;
+  late List<Product> _currentProducts;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  bool _isSyncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentOfflineState = widget.isOffline;
+    _currentProducts = widget.products;
+    _registerConnectivityListener();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
+  }
+
+  void _registerConnectivityListener() {
+    _connectivitySubscription = Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      final hasNetwork = results.any((result) => result != ConnectivityResult.none);
+      final isNowOffline = !hasNetwork;
+
+      if (_currentOfflineState != isNowOffline) {
+        setState(() {
+          _currentOfflineState = isNowOffline;
+        });
+
+        if (hasNetwork) {
+          _syncProductsInBackground();
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đã mất kết nối mạng. Bạn đang ở chế độ ngoại tuyến.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _syncProductsInBackground() async {
+    if (_isSyncing) return;
+    _isSyncing = true;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.wifi, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Đã khôi phục kết nối! Đang cập nhật sản phẩm mới...',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Color(0xFFC6A15B),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+
+    try {
+      final catalogRepository = GetIt.instance<CatalogRepository>();
+      final freshProducts = await catalogRepository.refreshProducts();
+      if (mounted) {
+        setState(() {
+          _currentProducts = freshProducts;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Đồng bộ sản phẩm mới thành công!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[SyncError] Không thể đồng bộ sản phẩm: $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
 
   List<Product> _getFilteredProducts(List<Product> products) {
     var filtered = products;
@@ -71,13 +173,29 @@ class _HomePageState extends State<HomePage> {
     final isCacheFallback = catalogRepository.isUsingCacheFallback;
     final categories = catalogRepository.getCategories();
 
-    final filteredProducts = _getFilteredProducts(widget.products);
+    final filteredProducts = _getFilteredProducts(_currentProducts);
 
     return BlocBuilder<AuthCubit, AuthState>(
       builder: (context, authState) {
         return BaseScreen(
           title: 'Trang chủ',
           actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+              child: Chip(
+                label: Text(
+                  _currentOfflineState ? 'OFFLINE' : 'ONLINE',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                backgroundColor: _currentOfflineState ? Colors.red : Colors.green,
+                padding: EdgeInsets.zero,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
             // Phần phân quyền của AppBar: chưa đăng nhập thì hiện Login,
             // còn đã đăng nhập thì hiển thị lối tắt đúng theo vai trò.
             if (!authState.isAuthenticated)
