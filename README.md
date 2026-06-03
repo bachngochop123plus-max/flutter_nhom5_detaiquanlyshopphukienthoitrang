@@ -11,7 +11,6 @@ The app uses an offline-first caching strategy with real-time sync:
 3. **In background**: Sync from Supabase to refresh data, then cache to SQLite.
 4. **Fallback chain**:
    - Supabase (`SUPABASE_URL` + `SUPABASE_ANON_KEY`) - primary source with real-time
-   - `PRODUCTS_API_URL` - fallback when Supabase not configured
    - Local SQLite cache - when network unavailable
 
 **Benefits**:

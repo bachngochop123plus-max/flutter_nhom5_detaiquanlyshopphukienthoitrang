@@ -201,7 +201,7 @@ class _HomePageState extends State<HomePage> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Dang hien thi du lieu cache cu. Kiem tra profile F5/ket noi Supabase/API neu du lieu khong moi.',
+                            'Đang hiển thị dữ liệu cache cũ. Kiểm tra kết nối Supabase nếu dữ liệu không mới.',
                             style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(color: const Color(0xFF6B4100)),
                           ),
