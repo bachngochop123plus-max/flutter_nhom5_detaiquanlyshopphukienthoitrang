@@ -1,27 +1,21 @@
 import 'dart:async';
-import '../errors/failure.dart';
 import '../models/product.dart';
 import '../models/product_category.dart';
-import '../config/api_config.dart';
-import '../services/api_service.dart';
 import '../config/supabase_config.dart';
 import 'database_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-enum CatalogDataSource { unknown, supabase, api, sqliteCache }
+enum CatalogDataSource { unknown, supabase, sqliteCache }
 
 class CatalogRepository {
   CatalogRepository({
-    required ApiService apiService,
     required DatabaseHelper databaseHelper,
-  }) : _apiService = apiService,
-       _databaseHelper = databaseHelper;
+  }) : _databaseHelper = databaseHelper;
 
   static const _storageBucket = 'Img_products';
   static const _storageFolder = 'Img_Product';
 
-  final ApiService _apiService;
   final DatabaseHelper _databaseHelper;
   List<Product> _memoryProducts = const [];
   List<ProductCategory> _memoryCategories = const [];
@@ -31,12 +25,6 @@ class CatalogRepository {
   String? _lastWarmUpError;
 
   bool get _usesSupabase => SupabaseConfig.instance.isConfigured;
-
-  bool get _hasApiFallback => ApiConfig.instance.hasProductsUrl;
-
-  bool get _usesApi => !_usesSupabase && _hasApiFallback;
-
-  String get _productsUrl => ApiConfig.instance.productsUrl;
 
   CatalogDataSource get lastDataSource => _lastDataSource;
 
@@ -48,8 +36,6 @@ class CatalogRepository {
     switch (_lastDataSource) {
       case CatalogDataSource.supabase:
         return 'Supabase';
-      case CatalogDataSource.api:
-        return 'Products API';
       case CatalogDataSource.sqliteCache:
         return 'SQLite cache';
       case CatalogDataSource.unknown:
@@ -92,43 +78,15 @@ class CatalogRepository {
       } catch (error, stackTrace) {
         _lastWarmUpError = error.toString();
         debugPrint(
-          '[CatalogRepository] warmUp: Supabase sync failed, trying API fallback. '
+          '[CatalogRepository] warmUp: Supabase sync failed. '
           'error=$error\n$stackTrace',
         );
-        if (_hasApiFallback) {
-          try {
-            await refreshFromApiAndCache();
-            _isUsingCacheFallback = false;
-          } on ApiFailure catch (apiError) {
-            _isUsingCacheFallback = _memoryProducts.isNotEmpty;
-            debugPrint(
-              '[CatalogRepository] warmUp: API fallback also failed '
-              '(code=${apiError.code}): ${apiError.message}',
-            );
-          }
-        } else {
-          _isUsingCacheFallback = _memoryProducts.isNotEmpty;
-        }
+        _isUsingCacheFallback = _memoryProducts.isNotEmpty;
         return;
       }
     }
 
-    // Fallback to API JSON if Supabase not configured
-    if (_usesApi) {
-      try {
-        final remoteProducts = await _fetchProductsFromApi();
-        if (remoteProducts.isNotEmpty) {
-          await _databaseHelper.replaceCatalogProducts(remoteProducts);
-          _memoryProducts = remoteProducts;
-          _lastDataSource = CatalogDataSource.api;
-          _isUsingCacheFallback = false;
-        }
-      } on ApiFailure catch (apiError) {
-        _lastWarmUpError = apiError.message;
-        _isUsingCacheFallback = _memoryProducts.isNotEmpty;
-        // Keep local cache as-is when API unavailable.
-      }
-    } else if (_memoryProducts.isNotEmpty) {
+    if (_memoryProducts.isNotEmpty) {
       _isUsingCacheFallback = true;
     }
   }
@@ -187,79 +145,19 @@ class CatalogRepository {
         return _memoryProducts;
       } catch (error, stackTrace) {
         debugPrint(
-          '[CatalogRepository] refreshProducts: Supabase failed, trying API fallback. '
+          '[CatalogRepository] refreshProducts: Supabase failed. '
           'error=$error\n$stackTrace',
         );
-        if (_hasApiFallback) {
-          return refreshFromApiAndCache();
-        }
         rethrow;
       }
     }
 
-    return refreshFromApiAndCache();
-  }
-
-  Future<List<Product>> refreshFromApiAndCache() async {
-    if (!_hasApiFallback) {
-      throw const ApiFailure(
-        message: 'Chua cau hinh PRODUCTS_API_URL cho API fallback',
-        code: 'API_FALLBACK_NOT_CONFIGURED',
-      );
+    final localProducts = await _databaseHelper.getCatalogProducts();
+    if (localProducts.isNotEmpty) {
+      _memoryProducts = localProducts;
+      _lastDataSource = CatalogDataSource.sqliteCache;
     }
-
-    final remoteProducts = await _fetchProductsFromApi();
-    await _databaseHelper.replaceCatalogProducts(remoteProducts);
-    _memoryProducts = remoteProducts;
-    _lastDataSource = CatalogDataSource.api;
-    _isUsingCacheFallback = false;
     return _memoryProducts;
-  }
-
-  Future<List<Product>> _fetchProductsFromApi() async {
-    final payload = await _apiService.getJson(Uri.parse(_productsUrl));
-    final items = payload['products'] ?? payload['data'];
-    if (items is! List) {
-      final payloadKeys = payload.keys.join(',');
-      throw ApiFailure(
-        message:
-            'API products khong dung dinh dang. Can list trong key "products" hoac "data" '
-            '(url=$_productsUrl, keys=[$payloadKeys])',
-        code: 'INVALID_PRODUCTS_PAYLOAD',
-      );
-    }
-
-    return items
-        .whereType<Map>()
-        .map((item) => _mapApiProduct(Map<String, dynamic>.from(item)))
-        .toList(growable: false);
-  }
-
-  Product _mapApiProduct(Map<String, dynamic> raw) {
-    final images = raw['images'] is List
-        ? (raw['images'] as List)
-              .map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList(growable: false)
-        : const <String>[];
-
-    final image =
-        raw['thumbnail']?.toString() ??
-        (images.isNotEmpty ? images.first : raw['image']?.toString() ?? '');
-
-    return Product.fromApiMap({
-      'id': raw['id'],
-      'name': raw['title'] ?? raw['name'],
-      'description': raw['description'],
-      'image': image,
-      'category': raw['category'],
-      'price': raw['price'],
-      'isDiscounted': false,
-      'rating': raw['rating'],
-      'gallery': images,
-      'availableColors': const ['Default'],
-      'availableSizes': const ['Free size'],
-    });
   }
 
   List<Product> getProducts() {

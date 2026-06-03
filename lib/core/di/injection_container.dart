@@ -2,7 +2,6 @@ import 'package:get_it/get_it.dart';
 
 import '../data/catalog_repository.dart';
 import '../data/database_helper.dart';
-import '../services/api_service.dart';
 import '../services/supabase_auth_repository.dart';
 import '../services/supabase_storage_service.dart';
 import '../../features/auth/presentation/cubit/auth_cubit.dart';
@@ -15,7 +14,6 @@ Future<void> bootstrapDependencies() async {
     return;
   }
 
-  getIt.registerLazySingleton<ApiService>(() => ApiService());
   getIt.registerLazySingleton<DatabaseHelper>(() => DatabaseHelper.instance);
   getIt.registerLazySingleton<SupabaseAuthRepository>(
     () => SupabaseAuthRepository(databaseHelper: getIt<DatabaseHelper>()),
@@ -25,7 +23,6 @@ Future<void> bootstrapDependencies() async {
   );
   getIt.registerLazySingleton<CatalogRepository>(
     () => CatalogRepository(
-      apiService: getIt<ApiService>(),
       databaseHelper: getIt<DatabaseHelper>(),
     ),
   );

@@ -23,7 +23,6 @@ detai_shopbanphukienthoitrang/
 │   │
 │   ├── core/
 │   │   ├── config/
-│   │   │   ├── api_config.dart
 │   │   │   └── supabase_config.dart
 │   │   ├── constants/
 │   │   │   └── app_assets.dart
@@ -40,7 +39,6 @@ detai_shopbanphukienthoitrang/
 │   │   │   ├── app_router.dart
 │   │   │   └── go_router_refresh_stream.dart
 │   │   ├── services/
-│   │   │   ├── api_service.dart
 │   │   │   ├── device_service.dart
 │   │   │   ├── supabase_auth_repository.dart
 │   │   │   └── supabase_storage_service.dart
@@ -107,7 +105,7 @@ detai_shopbanphukienthoitrang/
 
 ### 2.2 Core DI và service
 - `injection_container.dart`
-	- Đăng ký singleton: `ApiService`, `DatabaseHelper`, `SupabaseAuthRepository`, `SupabaseStorageService`, `CatalogRepository`, `AuthCubit`, `CartCubit`.
+	- Đăng ký singleton: `DatabaseHelper`, `SupabaseAuthRepository`, `SupabaseStorageService`, `CatalogRepository`, `AuthCubit`, `CartCubit`.
 	- Khởi tạo DB local.
 	- Warm-up sản phẩm vào memory.
 
@@ -132,7 +130,7 @@ detai_shopbanphukienthoitrang/
 - `catalog_repository.dart`
 	- Chuyển đổi nguồn dữ liệu theo cấu hình:
 		- Có Supabase: đọc/ghi từ Supabase tables.
-		- Không Supabase: dùng SQLite local + API fallback.
+		- Không Supabase: dùng SQLite local.
 	- CRUD sản phẩm:
 		- `createProduct`
 		- `updateProduct`
@@ -225,7 +223,7 @@ detai_shopbanphukienthoitrang/
 	- Image: Supabase Storage
 - Supabase không configured:
 	- Auth: local SQLite users
-	- Catalog: local SQLite + API fallback (DummyJSON)
+	- Catalog: local SQLite
 	- Image upload: bỏ qua (trả `null`)
 
 ### 4.2 Bảng dữ liệu local chính (SQLite)
