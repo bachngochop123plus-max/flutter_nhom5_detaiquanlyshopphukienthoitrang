@@ -14,6 +14,7 @@ import '../../features/login/presentation/pages/register_page.dart';
 import '../../features/product_detail/presentation/pages/product_detail_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
 import '../../features/shell/main_shell.dart';
+import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/store_locator/presentation/pages/store_locator_page.dart';
 import '../data/catalog_repository.dart';
 import 'go_router_refresh_stream.dart';
@@ -22,7 +23,7 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
   final catalogRepository = GetIt.instance<CatalogRepository>();
 
   return GoRouter(
-    initialLocation: '/home',
+    initialLocation: '/splash',
     refreshListenable: GoRouterRefreshStream(authCubit.stream),
     redirect: (context, state) {
       final onLogin = state.matchedLocation == '/login';
@@ -41,6 +42,7 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
       return null;
     },
     routes: [
+      GoRoute(path: '/splash', builder: (context, state) => const SplashPage()),
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
       GoRoute(
         path: '/register',
@@ -70,8 +72,13 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
         routes: [
           GoRoute(
             path: '/home',
-            builder: (context, state) =>
-                HomePage(products: catalogRepository.getProducts()),
+            builder: (context, state) {
+              final isOffline = (state.extra as bool?) ?? false;
+              return HomePage(
+                products: catalogRepository.getProducts(),
+                isOffline: isOffline,
+              );
+            },
             routes: [
               GoRoute(
                 path: 'product',
