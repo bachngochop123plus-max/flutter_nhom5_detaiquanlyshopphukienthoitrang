@@ -73,7 +73,7 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
           GoRoute(
             path: '/home',
             builder: (context, state) {
-              final isOffline = (state.extra as bool?) ?? false;
+              final isOffline = state.extra is bool ? state.extra as bool : false;
               return HomePage(
                 products: catalogRepository.getProducts(),
                 isOffline: isOffline,

@@ -173,8 +173,7 @@ class _AdminDashboardView extends StatelessWidget {
           Expanded(
             child: ListView(
               children: [
-              if (isWide) ...
-                [
+                if (isWide) ...[
                   Row(
                     children: [
                       Expanded(
@@ -212,41 +211,40 @@ class _AdminDashboardView extends StatelessWidget {
                       context.push('/admin/orders');
                     },
                   ),
-                ]
-              else
-                Column(
-                  children: [
-                    _FunctionCard(
-                      icon: Icons.inventory_2_outlined,
-                      title: 'Quan ly san pham',
-                      subtitle: 'Xem danh sach, sua, xoa san pham',
-                      color: const Color(0xFFB9852E),
-                      onTap: () {
-                        context.push('/admin/inventory');
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FunctionCard(
-                      icon: Icons.add_box_outlined,
-                      title: 'Them san pham moi',
-                      subtitle: 'Mo form tao san pham moi',
-                      color: const Color(0xFF2A8A5A),
-                      onTap: () {
-                        context.push('/admin/inventory/new');
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FunctionCard(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Quan ly don hang',
-                      subtitle: 'Xem, loc va cap nhat trang thai don hang',
-                      color: const Color(0xFF1A73E8),
-                      onTap: () {
-                        context.push('/admin/orders');
-                      },
-                    ),
-                  ],
-                ),
+                ] else
+                  Column(
+                    children: [
+                      _FunctionCard(
+                        icon: Icons.inventory_2_outlined,
+                        title: 'Quan ly san pham',
+                        subtitle: 'Xem danh sach, sua, xoa san pham',
+                        color: const Color(0xFFB9852E),
+                        onTap: () {
+                          context.push('/admin/inventory');
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FunctionCard(
+                        icon: Icons.add_box_outlined,
+                        title: 'Them san pham moi',
+                        subtitle: 'Mo form tao san pham moi',
+                        color: const Color(0xFF2A8A5A),
+                        onTap: () {
+                          context.push('/admin/inventory/new');
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FunctionCard(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Quan ly don hang',
+                        subtitle: 'Xem, loc va cap nhat trang thai don hang',
+                        color: const Color(0xFF1A73E8),
+                        onTap: () {
+                          context.push('/admin/orders');
+                        },
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
