@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
+import '../../../../core/data/database_helper.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../widgets/product_search_bar.dart';
@@ -37,16 +38,54 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _isSyncing = false;
 
+  final PageController _bannerPageController = PageController(initialPage: 0);
+  int _currentBannerIndex = 0;
+  Timer? _bannerTimer;
+
+  final List<Map<String, String>> _banners = [
+    {
+      'image': 'assets/images/banner_bags.png',
+      'title': 'Luxury Accessories',
+      'subtitle': 'Bộ sưu tập túi xách thượng lưu',
+    },
+    {
+      'image': 'assets/images/banner_watches.png',
+      'title': 'Gentry Watches',
+      'subtitle': 'Đồng hồ cơ khí đẳng cấp quý ông',
+    },
+    {
+      'image': 'assets/images/banner_sunglasses.png',
+      'title': 'Designer Eyewear',
+      'subtitle': 'Kính mắt thời trang sang trọng',
+    },
+  ];
+
   @override
   void initState() {
     super.initState();
     _currentOfflineState = widget.isOffline;
     _currentProducts = widget.products;
     _registerConnectivityListener();
+    _startBannerAutoPlay();
+  }
+
+  void _startBannerAutoPlay() {
+    _bannerTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (_bannerPageController.hasClients) {
+        final nextPage = (_currentBannerIndex + 1) % _banners.length;
+        _bannerPageController.animateToPage(
+          nextPage,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
+    _bannerTimer?.cancel();
+    _bannerPageController.dispose();
     _connectivitySubscription?.cancel();
     super.dispose();
   }
@@ -256,46 +295,137 @@ class _HomePageState extends State<HomePage> {
           ],
           body: CustomScrollView(
             slivers: [
+              // Auto-playing Banner Slider
               SliverToBoxAdapter(
                 child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF111111), Color(0xFFC6A15B)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                  height: 180,
+                  margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        PageView.builder(
+                          controller: _bannerPageController,
+                          itemCount: _banners.length,
+                          onPageChanged: (index) {
+                            setState(() {
+                              _currentBannerIndex = index;
+                            });
+                          },
+                          itemBuilder: (context, index) {
+                            final banner = _banners[index];
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.asset(
+                                  banner['image']!,
+                                  fit: BoxFit.cover,
+                                ),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.black.withValues(alpha: 0.65),
+                                        Colors.transparent,
+                                      ],
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 20,
+                                  left: 20,
+                                  right: 20,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        banner['title']!,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        banner['subtitle']!,
+                                        style: const TextStyle(
+                                          color: Color(0xFFF6E8C7),
+                                          fontSize: 13,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        Positioned(
+                          bottom: 12,
+                          right: 20,
+                          child: Row(
+                            children: List.generate(
+                              _banners.length,
+                              (index) => AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                margin: const EdgeInsets.only(right: 6),
+                                width: _currentBannerIndex == index ? 18 : 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: _currentBannerIndex == index
+                                      ? const Color(0xFFC6A15B)
+                                      : Colors.white.withValues(alpha: 0.5),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Luxury Accessories',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
+                ),
+              ),
+              // Shop Trust Decorators Row
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Builder(
+                    builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1B1B1B) : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? Colors.grey[900]! : Colors.grey[200]!,
+                            width: 1.0,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Bộ sưu tập phụ kiện thời trang\ncho đồ án Flutter',
-                        style: TextStyle(
-                          color: Color(0xFFF6E8C7),
-                          fontSize: 18,
-                          height: 1.4,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildShopFeature(context, Icons.verified_user_outlined, '100% Chính hãng'),
+                            _buildShopFeature(context, Icons.local_shipping_outlined, 'Giao hàng nhanh'),
+                            _buildShopFeature(context, Icons.workspace_premium_outlined, 'Bảo hành 2 năm'),
+                          ],
                         ),
-                      ),
-                    ],
+                      );
+                    }
                   ),
                 ),
               ),
@@ -346,54 +476,47 @@ class _HomePageState extends State<HomePage> {
                   },
                 ),
               ),
-              // Categories
+              // Categories (Scrollable)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('Tất cả'),
-                            selected: _categoryFilter == null,
-                            onSelected: (_) =>
-                                setState(() => _categoryFilter = null),
-                          ),
-                          if (categories.isEmpty)
-                            ...[
-                              'Túi Xách Thời Trang',
-                              'Kính Mắt Gentry',
-                              'Đồng Hồ Cao Cấp',
-                              'Trang Sức Quý Phái',
-                              'Mũ & Nón Thời Trang',
-                            ].map(
-                              (category) => ChoiceChip(
-                                label: Text(category),
-                                selected: _categoryFilter == category,
-                                onSelected: (_) =>
-                                    setState(() => _categoryFilter = category),
-                              ),
-                            )
-                          else
-                            ...categories.map(
-                              (category) => ChoiceChip(
-                                label: Text(category.name),
-                                selected: _categoryFilter == category.name,
-                                onSelected: (_) => setState(
-                                  () => _categoryFilter = category.name,
-                                ),
-                              ),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: [
+                        _buildCategoryTab(
+                          context,
+                          label: 'Tất cả',
+                          isSelected: _categoryFilter == null,
+                          onSelected: () => setState(() => _categoryFilter = null),
+                        ),
+                        if (categories.isEmpty)
+                          ...[
+                            'Túi Xách Thời Trang',
+                            'Kính Mắt Gentry',
+                            'Đồng Hồ Cao Cấp',
+                            'Trang Sức Quý Phái',
+                            'Mũ & Nón Thời Trang',
+                          ].map(
+                            (category) => _buildCategoryTab(
+                              context,
+                              label: category,
+                              isSelected: _categoryFilter == category,
+                              onSelected: () => setState(() => _categoryFilter = category),
                             ),
-                        ],
-                      ),
+                          )
+                        else
+                          ...categories.map(
+                            (category) => _buildCategoryTab(
+                              context,
+                              label: category.name,
+                              isSelected: _categoryFilter == category.name,
+                              onSelected: () => setState(() => _categoryFilter = category.name),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -459,102 +582,330 @@ class _HomePageState extends State<HomePage> {
       },
     );
   }
+
+  Widget _buildCategoryTab(
+    BuildContext context, {
+    required String label,
+    required bool isSelected,
+    required VoidCallback onSelected,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onSelected,
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? (isDark ? const Color(0xFFC6A15B) : const Color(0xFF111111))
+                  : (isDark ? const Color(0xFF1B1B1B) : Colors.white),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.transparent
+                    : (isDark ? Colors.grey[800]! : Colors.grey[200]!),
+                width: 1,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected
+                      ? Colors.white
+                      : (isDark ? Colors.grey[400] : Colors.grey[800]),
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShopFeature(BuildContext context, IconData icon, String text) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          color: const Color(0xFFC6A15B),
+          size: 16,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.grey[300] : const Color(0xFF4A4A4A),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-class _ProductCard extends StatelessWidget {
+class _ProductCard extends StatefulWidget {
   const _ProductCard({required this.product});
 
   final Product product;
 
   @override
-  Widget build(BuildContext context) {
-    final displayImageUrl = product.imageUrl.isNotEmpty
-        ? product.imageUrl
-        : (product.gallery.isNotEmpty ? product.gallery.first : '');
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: () => context.go('/home/product', extra: product),
-      child: Card(
-        elevation: 1,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: displayImageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) =>
-                        const Center(child: CircularProgressIndicator()),
-                    errorWidget: (context, url, error) =>
-                        const Icon(Icons.image_not_supported_outlined),
-                  ),
-                  if (product.isDiscounted)
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      child: _Badge(text: 'Giảm giá'),
-                    ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.category,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    product.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${product.price.toStringAsFixed(0)} đ',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  State<_ProductCard> createState() => _ProductCardState();
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge({required this.text});
+class _ProductCardState extends State<_ProductCard> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  bool _isFav = false;
 
-  final String text;
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+      lowerBound: 0.94,
+      upperBound: 1.0,
+      value: 1.0,
+    );
+    _scaleAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOut,
+    );
+    _checkFavoriteStatus();
+  }
+
+  Future<void> _checkFavoriteStatus() async {
+    final productId = int.tryParse(widget.product.id);
+    if (productId != null) {
+      final isFav = await DatabaseHelper.instance.isFavorite(1, productId);
+      if (mounted) {
+        setState(() {
+          _isFav = isFav;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    final productId = int.tryParse(widget.product.id);
+    if (productId != null) {
+      await DatabaseHelper.instance.toggleFavorite(1, productId);
+      setState(() {
+        _isFav = !_isFav;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isFav ? 'Đã thêm vào mục yêu thích' : 'Đã xóa khỏi mục yêu thích'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    _controller.animateTo(0.94);
+  }
+
+  void _onTapUp(TapUpDetails details) {
+    _controller.animateTo(1.0);
+  }
+
+  void _onTapCancel() {
+    _controller.animateTo(1.0);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111).withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final displayImageUrl = widget.product.imageUrl.isNotEmpty
+        ? widget.product.imageUrl
+        : (widget.product.gallery.isNotEmpty ? widget.product.gallery.first : '');
+
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      onTap: () {
+        context.go('/home/product', extra: widget.product);
+      },
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF111111) : const Color(0xFFFBF9F6),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? const Color(0xFF3B3120) : const Color(0xFF4A3F28),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Hero(
+                        tag: 'product-image-${widget.product.id}',
+                        child: CachedNetworkImage(
+                          imageUrl: displayImageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) =>
+                              const Center(child: CircularProgressIndicator()),
+                          errorWidget: (context, url, error) =>
+                              const Icon(Icons.image_not_supported_outlined),
+                        ),
+                      ),
+                      if (widget.product.isDiscounted)
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFC6A15B),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'SALE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: GestureDetector(
+                          onTap: _toggleFavorite,
+                          child: Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              _isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                              color: _isFav ? const Color(0xFFB23A48) : Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                height: 1.0,
+                color: isDark ? const Color(0xFF3B3120) : const Color(0xFF4A3F28),
+              ),
+              Container(
+                color: isDark ? const Color(0xFF1B160E) : const Color(0xFFF6EFE0),
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.product.category.toUpperCase(),
+                      style: TextStyle(
+                        color: isDark ? const Color(0xFFC6A15B).withValues(alpha: 0.7) : const Color(0xFF8A7A5F),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.product.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : const Color(0xFF111111),
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF251E14) : Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFFC6A15B).withValues(alpha: 0.4),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Text(
+                            '${widget.product.price.toStringAsFixed(0)} đ',
+                            style: TextStyle(
+                              color: isDark ? const Color(0xFFC6A15B) : const Color(0xFF8C6D30),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC6A15B).withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.add_shopping_cart_rounded,
+                            color: Color(0xFFC6A15B),
+                            size: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
