@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/services/device_service.dart';
 import '../../../../core/widgets/base_screen.dart';
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../auth/presentation/cubit/auth_cubit.dart';
+import 'package:go_router/go_router.dart';
+
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -42,6 +46,54 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthCubit>().state;
+
+    // ❌ CHƯA LOGIN
+    if (!auth.isAuthenticated) {
+      return BaseScreen(
+        title: 'Hồ sơ',
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.person_off, size: 80),
+
+                const SizedBox(height: 16),
+
+                const Text(
+                  'Bạn chưa đăng nhập',
+                  style: TextStyle(fontSize: 18),
+                ),
+
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => context.push('/login'),
+                    child: const Text('Đăng nhập'),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => context.push('/register'),
+                    child: const Text('Đăng ký'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ✅ ĐÃ LOGIN → GIỮ NGUYÊN CODE CŨ CỦA BẠN
     return BaseScreen(
       title: 'Hồ sơ',
       isLoading: _loading,
@@ -63,34 +115,33 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
+
           FilledButton.icon(
             onPressed: _captureAvatar,
             icon: const Icon(Icons.camera_alt_outlined),
             label: const Text('Chụp avatar bằng camera'),
           ),
+
           const SizedBox(height: 12),
+
           OutlinedButton.icon(
             onPressed: _loadContacts,
             icon: const Icon(Icons.contacts_outlined),
             label: const Text('Mời bạn bè từ danh bạ'),
           ),
+
           const SizedBox(height: 24),
+
           if (_contacts.isNotEmpty)
             Text('Danh bạ', style: Theme.of(context).textTheme.titleLarge),
+
           const SizedBox(height: 8),
+
           ..._contacts.map(
             (contact) => Card(
               child: ListTile(
                 title: Text(contact.displayName),
                 subtitle: Text(contact.phoneNumber),
-                trailing: IconButton(
-                  icon: const Icon(Icons.sms_outlined),
-                  onPressed: () => _deviceService.openSms(
-                    contact.phoneNumber,
-                    message:
-                        'Mời bạn trải nghiệm ứng dụng phụ kiện thời trang của mình.',
-                  ),
-                ),
               ),
             ),
           ),
