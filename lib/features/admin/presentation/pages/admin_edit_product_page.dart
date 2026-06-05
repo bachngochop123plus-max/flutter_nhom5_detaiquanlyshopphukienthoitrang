@@ -25,8 +25,10 @@ class AdminEditProductPage extends StatefulWidget {
 class _AdminEditProductPageState extends State<AdminEditProductPage> {
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
-  late final TextEditingController _categoryController;
   late final TextEditingController _priceController;
+
+  List<String> _categoryOptions = [];
+  String? _selectedCategory;
   late final CatalogRepository _catalogRepository;
   late final SupabaseStorageService _storageService;
 
@@ -63,17 +65,34 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
     _descriptionController = TextEditingController(
       text: _draftProduct.description,
     );
-    _categoryController = TextEditingController(text: _draftProduct.category);
     _priceController = TextEditingController(
       text: _draftProduct.price.toStringAsFixed(0),
     );
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    // Đảm bảo categories đã được load
+    await _catalogRepository.loadCategories();
+    final categories = _catalogRepository.getCategories();
+    if (!mounted) return;
+    final names = categories.map((c) => c.name).toList();
+    // Thêm giá trị mặc định nếu chưa có trong danh sách
+    final currentCategory = _draftProduct.category;
+    if (currentCategory.isNotEmpty && !names.contains(currentCategory)) {
+      names.insert(0, currentCategory);
+    }
+    setState(() {
+      _categoryOptions = names;
+      _selectedCategory =
+          names.contains(currentCategory) ? currentCategory : null;
+    });
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
-    _categoryController.dispose();
     _priceController.dispose();
     super.dispose();
   }
@@ -99,7 +118,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
 
   Future<void> _save() async {
     final name = _nameController.text.trim();
-    final category = _categoryController.text.trim();
+    final category = _selectedCategory ?? '';
     final description = _descriptionController.text.trim();
     final price = double.tryParse(_priceController.text.trim());
 
@@ -282,13 +301,27 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  TextField(
-                    controller: _categoryController,
-                    decoration: const InputDecoration(
-                      labelText: 'Danh mục',
-                      border: OutlineInputBorder(),
+                  if (_categoryOptions.isEmpty)
+                    const LinearProgressIndicator()
+                  else
+                    DropdownButtonFormField<String>(
+                      value: _selectedCategory,
+                      decoration: const InputDecoration(
+                        labelText: 'Danh mục',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _categoryOptions
+                          .map(
+                            (cat) => DropdownMenuItem(
+                              value: cat,
+                              child: Text(cat),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() => _selectedCategory = value);
+                      },
                     ),
-                  ),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _descriptionController,
