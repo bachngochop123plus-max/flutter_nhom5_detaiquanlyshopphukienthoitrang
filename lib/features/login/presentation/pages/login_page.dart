@@ -134,29 +134,22 @@ class _LoginPageState extends State<LoginPage> {
                       obscureText: true,
                     ),
                     const SizedBox(height: 24),
-                    FilledButton(
+                    FilledButton.icon(
+                      icon: const Icon(Icons.login),
                       onPressed: _isSubmitting
                           ? null
                           : () => _login(requireAdmin: false),
                       style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
-                      child: Text(
-                        _isSubmitting ? 'Dang nhap...' : 'Đăng nhập User',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: _isSubmitting
-                          ? null
-                          : () => _login(requireAdmin: true),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text(
-                        _isSubmitting ? 'Dang nhap...' : 'Đăng nhập Admin',
+                      label: Text(
+                        _isSubmitting ? 'Đang đăng nhập...' : 'Đăng nhập',
                       ),
                     ),
+
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: () => context.push('/register'),

@@ -7,6 +7,7 @@ import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/product.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../../cart/presentation/cubit/cart_cubit.dart';
+import '../../../../core/utils/auth_guard.dart';
 
 class ProductDetailPage extends StatefulWidget {
   const ProductDetailPage({super.key, required this.product});
@@ -130,17 +131,20 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           ),
           const SizedBox(height: 12),
           Row(
-            children: List.generate(3, (index) => Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Container(
-                width: 60,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
+            children: List.generate(
+              3,
+              (index) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Container(
+                  width: 60,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
-            )),
+            ),
           ),
         ],
       ),
@@ -168,9 +172,16 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               IconButton(
                 icon: const Icon(Icons.favorite_outline),
                 onPressed: () async {
+                  if (!AuthGuard.requireLogin(context)) {
+                    return;
+                  }
+
                   final productId = int.tryParse(widget.product.id);
+
                   if (productId == null) return;
+
                   await DatabaseHelper.instance.toggleFavorite(1, productId);
+
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Đã cập nhật yêu thích')),
@@ -301,7 +312,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton(
-                                    onPressed: () => _showSelectionSheet(context),
+                                    onPressed: () =>
+                                        _showSelectionSheet(context),
                                     child: const Text('Chọn nhanh'),
                                   ),
                                 ),
@@ -311,14 +323,36 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                                     onPressed: isAdminViewingAsUser
                                         ? null
                                         : () {
-                                            context.read<CartCubit>().addProduct(
+                                            if (!AuthGuard.requireLogin(
+                                              context,
+                                            )) {
+                                              return;
+                                            }
+
+                                            context
+                                                .read<CartCubit>()
+                                                .addProduct(
                                                   widget.product,
                                                   color: _selectedColor,
                                                   size: _selectedSize,
                                                 );
-                                            ScaffoldMessenger.of(context).showSnackBar(
+
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
                                               const SnackBar(
-                                                content: Text('Đã thêm vào giỏ hàng'),
+                                                content: Text(
+                                                  'Đã thêm vào giỏ hàng',
+                                                ),
+                                              ),
+                                            );
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Đã thêm vào giỏ hàng',
+                                                ),
                                               ),
                                             );
                                           },
@@ -341,7 +375,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       ),
     );
   }
-
 
   void _showSelectionSheet(BuildContext context) {
     showModalBottomSheet<void>(
@@ -490,22 +523,15 @@ class _SlideUpFadeTransitionState extends State<SlideUpFadeTransition>
       duration: const Duration(milliseconds: 550),
     );
 
-    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOut,
-      ),
-    );
+    _opacityAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0.0, 0.25),
       end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
 
     Future.delayed(widget.delay, () {
       if (mounted) {
@@ -524,10 +550,7 @@ class _SlideUpFadeTransitionState extends State<SlideUpFadeTransition>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _opacityAnimation,
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: widget.child,
-      ),
+      child: SlideTransition(position: _slideAnimation, child: widget.child),
     );
   }
 }
