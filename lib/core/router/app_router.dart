@@ -7,6 +7,7 @@ import '../../features/admin/presentation/pages/admin_page.dart';
 import '../../features/admin/presentation/pages/admin_edit_product_page.dart';
 import '../../features/admin/presentation/pages/admin_inventory_page.dart';
 import '../../features/admin/presentation/pages/admin_orders_page.dart';
+import '../../features/admin/presentation/pages/admin_revenue_page.dart';
 import '../../features/favorites/presentation/pages/favorites_page.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/login/presentation/pages/login_page.dart';
@@ -66,6 +67,10 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
       GoRoute(
         path: '/admin/orders',
         builder: (context, state) => const AdminOrdersPage(),
+      ),
+      GoRoute(
+        path: '/admin/revenue',
+        builder: (context, state) => const AdminRevenuePage(),
       ),
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),

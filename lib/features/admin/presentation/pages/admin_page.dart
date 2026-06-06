@@ -211,6 +211,16 @@ class _AdminDashboardView extends StatelessWidget {
                       context.push('/admin/orders');
                     },
                   ),
+                  const SizedBox(height: 14),
+                  _FunctionCard(
+                    icon: Icons.bar_chart_rounded,
+                    title: 'Thong ke doanh thu',
+                    subtitle: 'Bao cao doanh thu theo khoang thoi gian',
+                    color: const Color(0xFF7B5EA7),
+                    onTap: () {
+                      context.push('/admin/revenue');
+                    },
+                  ),
                 ] else
                   Column(
                     children: [
@@ -241,6 +251,16 @@ class _AdminDashboardView extends StatelessWidget {
                         color: const Color(0xFF1A73E8),
                         onTap: () {
                           context.push('/admin/orders');
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FunctionCard(
+                        icon: Icons.bar_chart_rounded,
+                        title: 'Thong ke doanh thu',
+                        subtitle: 'Bao cao doanh thu theo khoang thoi gian',
+                        color: const Color(0xFF7B5EA7),
+                        onTap: () {
+                          context.push('/admin/revenue');
                         },
                       ),
                     ],
