@@ -1301,4 +1301,198 @@ class DatabaseHelper {
       );
     });
   }
+
+  // ── Revenue / statistics API ─────────────────────────────────────────────
+
+  /// Tổng quan doanh thu trong khoảng thời gian (chỉ đơn đã giao hoặc đang xử lý).
+  Future<Map<String, Object?>> getRevenueSummary({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+
+    final conditions = <String>[];
+    final args = <Object>[];
+
+    conditions.add("o.status NOT IN ('cancelled')");
+
+    if (from != null) {
+      conditions.add('o.order_date >= ?');
+      args.add(
+        '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')} 00:00:00',
+      );
+    }
+    if (to != null) {
+      conditions.add('o.order_date <= ?');
+      args.add(
+        '${to.year.toString().padLeft(4, '0')}-'
+        '${to.month.toString().padLeft(2, '0')}-'
+        '${to.day.toString().padLeft(2, '0')} 23:59:59',
+      );
+    }
+
+    final where = 'WHERE ${conditions.join(' AND ')}';
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        COUNT(*)          AS total_orders,
+        COALESCE(SUM(o.total_amount), 0) AS total_revenue,
+        COALESCE(AVG(o.total_amount), 0) AS avg_order_value,
+        SUM(CASE WHEN o.status = 'delivered'  THEN 1 ELSE 0 END) AS delivered_count,
+        SUM(CASE WHEN o.status = 'processing' THEN 1 ELSE 0 END) AS processing_count,
+        SUM(CASE WHEN o.status = 'shipped'    THEN 1 ELSE 0 END) AS shipped_count,
+        SUM(CASE WHEN o.status = 'pending'    THEN 1 ELSE 0 END) AS pending_count
+      FROM $ordersTable o
+      $where
+      ''',
+      args,
+    );
+    return rows.isNotEmpty ? rows.first : {};
+  }
+
+  /// Doanh thu theo ngày trong khoảng thời gian (không tính đơn huỷ).
+  Future<List<Map<String, Object?>>> getRevenueByDay({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+
+    final conditions = <String>["o.status NOT IN ('cancelled')"];
+    final args = <Object>[];
+
+    if (from != null) {
+      conditions.add('o.order_date >= ?');
+      args.add(
+        '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')} 00:00:00',
+      );
+    }
+    if (to != null) {
+      conditions.add('o.order_date <= ?');
+      args.add(
+        '${to.year.toString().padLeft(4, '0')}-'
+        '${to.month.toString().padLeft(2, '0')}-'
+        '${to.day.toString().padLeft(2, '0')} 23:59:59',
+      );
+    }
+
+    final where = 'WHERE ${conditions.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT
+        strftime('%Y-%m-%d', o.order_date) AS day,
+        COALESCE(SUM(o.total_amount), 0)   AS revenue,
+        COUNT(*)                           AS orders
+      FROM $ordersTable o
+      $where
+      GROUP BY day
+      ORDER BY day ASC
+      ''',
+      args,
+    );
+  }
+
+  /// Top sản phẩm bán chạy theo doanh thu trong khoảng thời gian.
+  Future<List<Map<String, Object?>>> getTopProductsByRevenue({
+    DateTime? from,
+    DateTime? to,
+    int limit = 5,
+  }) async {
+    final db = await database;
+
+    final conditions = <String>["o.status NOT IN ('cancelled')"];
+    final args = <Object>[];
+
+    if (from != null) {
+      conditions.add('o.order_date >= ?');
+      args.add(
+        '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')} 00:00:00',
+      );
+    }
+    if (to != null) {
+      conditions.add('o.order_date <= ?');
+      args.add(
+        '${to.year.toString().padLeft(4, '0')}-'
+        '${to.month.toString().padLeft(2, '0')}-'
+        '${to.day.toString().padLeft(2, '0')} 23:59:59',
+      );
+    }
+    args.add(limit);
+
+    final where = 'WHERE ${conditions.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT
+        p.name                                         AS product_name,
+        p.thumbnail                                    AS thumbnail,
+        SUM(oi.quantity)                               AS total_qty,
+        SUM(oi.quantity * oi.price_at_purchase)        AS total_revenue
+      FROM $orderItemsTable oi
+      JOIN $ordersTable           o  ON o.id = oi.order_id
+      JOIN $productVariantsTable  pv ON pv.id = oi.variant_id
+      JOIN $productsTable         p  ON p.id  = pv.product_id
+      $where
+      GROUP BY p.id
+      ORDER BY total_revenue DESC
+      LIMIT ?
+      ''',
+      args,
+    );
+  }
+
+  /// Doanh thu theo danh mục trong khoảng thời gian.
+  Future<List<Map<String, Object?>>> getRevenueByCategory({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final db = await database;
+
+    final conditions = <String>["o.status NOT IN ('cancelled')"];
+    final args = <Object>[];
+
+    if (from != null) {
+      conditions.add('o.order_date >= ?');
+      args.add(
+        '${from.year.toString().padLeft(4, '0')}-'
+        '${from.month.toString().padLeft(2, '0')}-'
+        '${from.day.toString().padLeft(2, '0')} 00:00:00',
+      );
+    }
+    if (to != null) {
+      conditions.add('o.order_date <= ?');
+      args.add(
+        '${to.year.toString().padLeft(4, '0')}-'
+        '${to.month.toString().padLeft(2, '0')}-'
+        '${to.day.toString().padLeft(2, '0')} 23:59:59',
+      );
+    }
+
+    final where = 'WHERE ${conditions.join(' AND ')}';
+
+    return db.rawQuery(
+      '''
+      SELECT
+        c.name                                  AS category_name,
+        SUM(oi.quantity * oi.price_at_purchase) AS total_revenue,
+        SUM(oi.quantity)                        AS total_qty
+      FROM $orderItemsTable oi
+      JOIN $ordersTable           o  ON o.id = oi.order_id
+      JOIN $productVariantsTable  pv ON pv.id = oi.variant_id
+      JOIN $productsTable         p  ON p.id  = pv.product_id
+      JOIN $categoriesTable       c  ON c.id  = p.category_id
+      $where
+      GROUP BY c.id
+      ORDER BY total_revenue DESC
+      ''',
+      args,
+    );
+  }
 }
