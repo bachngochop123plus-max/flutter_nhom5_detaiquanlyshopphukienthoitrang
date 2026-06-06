@@ -78,4 +78,6 @@ class Product {
       rating: (map['rating'] as num).toDouble(),
     );
   }
+
+  get thumbnail => null;
 }
