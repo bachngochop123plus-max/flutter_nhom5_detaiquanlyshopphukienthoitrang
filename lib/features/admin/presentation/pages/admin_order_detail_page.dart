@@ -2,7 +2,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/config/supabase_config.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/order_model.dart';
 import '../../../../core/widgets/base_screen.dart';
@@ -36,38 +38,53 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
     _loadDetail();
   }
 
+  bool get _usesSupabase => SupabaseConfig.instance.isConfigured;
+
   Future<void> _loadDetail() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
     try {
-      final raw = await _db.getOrderWithItems(widget.orderId);
-      if (raw == null) {
+      if (_usesSupabase) {
+        final order = await _fetchOrderFromSupabase(widget.orderId);
+        if (order == null) {
+          setState(() {
+            _error = 'Không tìm thấy đơn hàng #${widget.orderId}';
+            _isLoading = false;
+          });
+          return;
+        }
         setState(() {
-          _error = 'Không tìm thấy đơn hàng #${widget.orderId}';
+          _order = order;
           _isLoading = false;
         });
-        return;
-      }
-
-      final itemRaws = raw['order_items'];
-      final List<OrderItemModel> items;
-      if (itemRaws is List<Map<String, Object?>>) {
-        items = itemRaws.map(OrderItemModel.fromMap).toList();
-      } else if (itemRaws is List) {
-        items = itemRaws
-            .map((e) => OrderItemModel.fromMap(
-                Map<String, Object?>.from(e as Map)))
-            .toList();
       } else {
-        items = [];
+        final raw = await _db.getOrderWithItems(widget.orderId);
+        if (raw == null) {
+          setState(() {
+            _error = 'Không tìm thấy đơn hàng #${widget.orderId}';
+            _isLoading = false;
+          });
+          return;
+        }
+        final itemRaws = raw['order_items'];
+        final List<OrderItemModel> items;
+        if (itemRaws is List<Map<String, Object?>>) {
+          items = itemRaws.map(OrderItemModel.fromMap).toList();
+        } else if (itemRaws is List) {
+          items = itemRaws
+              .map((e) => OrderItemModel.fromMap(
+                  Map<String, Object?>.from(e as Map)))
+              .toList();
+        } else {
+          items = [];
+        }
+        setState(() {
+          _order = OrderModel.fromMap(raw).copyWith(items: items);
+          _isLoading = false;
+        });
       }
-
-      setState(() {
-        _order = OrderModel.fromMap(raw).copyWith(items: items);
-        _isLoading = false;
-      });
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -76,10 +93,95 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
     }
   }
 
+  /// Lấy chi tiết đơn hàng từ Supabase (kèm items, variant, product)
+  Future<OrderModel?> _fetchOrderFromSupabase(int orderId) async {
+    final client = Supabase.instance.client;
+
+    // Fetch order without joining users
+    final orderRows = await client
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .limit(1) as List<dynamic>;
+
+    if (orderRows.isEmpty) return null;
+    final raw = Map<String, dynamic>.from(orderRows.first as Map);
+
+    int safeInt(dynamic val) {
+      if (val == null) return 0;
+      if (val is int) return val;
+      if (val is num) return val.toInt();
+      if (val is String) return int.tryParse(val) ?? val.hashCode;
+      return 0;
+    }
+
+    double safeDouble(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is double) return val;
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      return 0.0;
+    }
+
+    final userId = safeInt(raw['user_id']);
+
+    final order = OrderModel(
+      id: safeInt(raw['id']),
+      userId: userId,
+      orderDate: DateTime.tryParse(raw['order_date']?.toString() ?? '') ?? DateTime.now(),
+      totalAmount: safeDouble(raw['total_amount']),
+      status: raw['status']?.toString() ?? 'pending',
+      paymentStatus: raw['payment_status']?.toString() ?? 'unpaid',
+      shippingAddress: raw['shipping_address']?.toString() ?? '',
+      paymentMethod: raw['payment_method']?.toString(),
+      customerName: 'Khách hàng #$userId',
+    );
+
+    // Fetch items
+    final itemRows = await client
+        .from('order_items')
+        .select(
+          'id, order_id, variant_id, quantity, price_at_purchase, '
+          'product_variants(color, size, products(name, thumbnail))',
+        )
+        .eq('order_id', orderId) as List<dynamic>;
+
+    final items = itemRows.map((raw) {
+      final r = Map<String, dynamic>.from(raw as Map);
+      final variant = r['product_variants'] != null
+          ? Map<String, dynamic>.from(r['product_variants'] as Map)
+          : <String, dynamic>{};
+      final product = variant['products'] != null
+          ? Map<String, dynamic>.from(variant['products'] as Map)
+          : <String, dynamic>{};
+
+      return OrderItemModel(
+        id: safeInt(r['id']),
+        orderId: safeInt(r['order_id']),
+        variantId: safeInt(r['variant_id']),
+        quantity: safeInt(r['quantity']),
+        priceAtPurchase: safeDouble(r['price_at_purchase']),
+        color: variant['color']?.toString(),
+        size: variant['size']?.toString(),
+        productName: product['name']?.toString(),
+        thumbnail: product['thumbnail']?.toString(),
+      );
+    }).toList();
+
+    return order.copyWith(items: items);
+  }
+
   Future<void> _changeStatus(String newStatus) async {
     setState(() => _isUpdating = true);
     try {
-      await _db.updateOrderStatus(widget.orderId, newStatus);
+      if (_usesSupabase) {
+        await Supabase.instance.client
+            .from('orders')
+            .update({'status': newStatus})
+            .eq('id', widget.orderId);
+      } else {
+        await _db.updateOrderStatus(widget.orderId, newStatus);
+      }
       await _loadDetail();
     } catch (e) {
       if (mounted) {
@@ -98,7 +200,14 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
   Future<void> _changePaymentStatus(String newPaymentStatus) async {
     setState(() => _isUpdating = true);
     try {
-      await _db.updatePaymentStatus(widget.orderId, newPaymentStatus);
+      if (_usesSupabase) {
+        await Supabase.instance.client
+            .from('orders')
+            .update({'payment_status': newPaymentStatus})
+            .eq('id', widget.orderId);
+      } else {
+        await _db.updatePaymentStatus(widget.orderId, newPaymentStatus);
+      }
       await _loadDetail();
     } catch (e) {
       if (mounted) {

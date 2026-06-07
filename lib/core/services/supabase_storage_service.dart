@@ -21,6 +21,11 @@ class SupabaseStorageService {
     );
   }
 
+  Future<List<XFile>> pickMultipleImages() async {
+    final picked = await _imagePicker.pickMultiImage(imageQuality: 90);
+    return picked;
+  }
+
   Future<String?> uploadProductImage({
     required String productId,
     required XFile file,
