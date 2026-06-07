@@ -1,8 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/user_profile_model.dart';
-
 import '../../../../core/services/supabase_auth_repository.dart';
 
 // ─────────────────────────────────────────────────────────
@@ -121,6 +121,7 @@ class AuthCubit extends Cubit<AuthState> {
   // ── Đăng xuất ──
   void logout() {
     emit(const AuthState(status: AuthStatus.unauthenticated));
+    DatabaseHelper.instance.clearFavoritesForUser(1).catchError((_) {});
     _authRepository.signOut().catchError((_) {});
   }
 

@@ -1261,7 +1261,7 @@ class DatabaseHelper {
     return rows.isNotEmpty;
   }
 
-  Future<void> toggleFavorite(int userId, int productId) async {
+  Future<bool> toggleFavorite(int userId, int productId) async {
     final db = await database;
     final exists = await isFavorite(userId, productId);
     if (exists) {
@@ -1270,11 +1270,13 @@ class DatabaseHelper {
         where: 'user_id = ? AND product_id = ?',
         whereArgs: [userId, productId],
       );
+      return false;
     } else {
       await db.insert(favoritesTable, {
         'user_id': userId,
         'product_id': productId,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      return true;
     }
   }
 
@@ -2074,42 +2076,88 @@ class DatabaseHelper {
       try {
         final client = Supabase.instance.client;
 
-        // Nếu chuyển sang trạng thái huỷ (cancelled), cần cộng lại tồn kho trên Supabase
-        if (status == 'cancelled') {
-          final orderRow = await client
-              .from('orders')
-              .select('status')
-              .eq('id', orderId)
-              .maybeSingle();
-          final oldStatus = orderRow != null ? orderRow['status'] as String? : null;
+        final orderRow = await client
+            .from('orders')
+            .select('status')
+            .eq('id', orderId)
+            .maybeSingle();
+        final oldStatus = orderRow != null ? orderRow['status'] as String? : null;
 
-          if (oldStatus != 'cancelled') {
-            final items = await client
-                .from('order_items')
-                .select('variant_id, quantity')
-                .eq('order_id', orderId)
-                as List<dynamic>;
+        if (status != oldStatus) {
+          // 1. Lấy thông tin chi tiết các order items
+          final items = await client
+              .from('order_items')
+              .select('variant_id, quantity')
+              .eq('order_id', orderId)
+              as List<dynamic>;
 
-            for (final rawItem in items) {
-              final item = Map<String, dynamic>.from(rawItem as Map);
+          if (items.isNotEmpty) {
+            final List<Map<String, dynamic>> itemList = items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            final variantIds = itemList.map((e) => e['variant_id'] as int).toList();
+
+            // 2. Lấy stock trước khi cập nhật status (1 query duy nhất)
+            final stockBeforeRows = await client
+                .from('product_variants')
+                .select('id, stock')
+                .filter('id', 'in', '(${variantIds.join(",")})');
+            
+            final stockBeforeMap = {
+              for (final r in stockBeforeRows)
+                (r['id'] as num).toInt(): (r['stock'] as num).toInt()
+            };
+
+            // 3. Cập nhật status của order (lúc này Trigger trên Supabase sẽ tự động chạy nếu có)
+            await client.from('orders').update({'status': status}).eq('id', orderId);
+
+            // 4. Lấy lại stock sau khi cập nhật status (1 query duy nhất) để kiểm tra trigger
+            final stockAfterRows = await client
+                .from('product_variants')
+                .select('id, stock')
+                .filter('id', 'in', '(${variantIds.join(",")})');
+            
+            final stockAfterMap = {
+              for (final r in stockAfterRows)
+                (r['id'] as num).toInt(): (r['stock'] as num).toInt()
+            };
+
+            // 5. So sánh và thực hiện cộng/trừ thủ công nếu không có trigger
+            for (final item in itemList) {
               final variantId = item['variant_id'] as int;
               final qty = item['quantity'] as int;
+              final before = stockBeforeMap[variantId] ?? 0;
+              final after = stockAfterMap[variantId] ?? 0;
 
-              final variantRow = await client
-                  .from('product_variants')
-                  .select('stock')
-                  .eq('id', variantId)
-                  .single();
-              final currentStock = (variantRow['stock'] as num).toInt();
-              await client
-                  .from('product_variants')
-                  .update({'stock': currentStock + qty})
-                  .eq('id', variantId);
+              if (status == 'cancelled' && oldStatus != 'cancelled') {
+                // Nếu stock sau khi update status vẫn bằng stock trước đó -> Không có trigger cộng lại stock
+                if (after == before) {
+                  final newStock = before + qty;
+                  await client
+                      .from('product_variants')
+                      .update({'stock': newStock})
+                      .eq('id', variantId);
+                  debugPrint('[updateOrderStatus] Đã cộng tồn kho thủ công: $before -> $newStock');
+                } else {
+                  debugPrint('[updateOrderStatus] Phát hiện DB Trigger đã tự động cộng tồn kho: $before -> $after. Bỏ qua cộng thủ công.');
+                }
+              } else if (status != 'cancelled' && oldStatus == 'cancelled') {
+                // Nếu phục hồi đơn hàng: kiểm tra nếu stock sau khi update status vẫn bằng stock trước đó -> Không có trigger trừ stock
+                if (after == before) {
+                  final newStock = (before - qty).clamp(0, before);
+                  await client
+                      .from('product_variants')
+                      .update({'stock': newStock})
+                      .eq('id', variantId);
+                  debugPrint('[updateOrderStatus] Đã trừ tồn kho thủ công: $before -> $newStock');
+                } else {
+                  debugPrint('[updateOrderStatus] Phát hiện DB Trigger đã tự động trừ tồn kho: $before -> $after. Bỏ qua trừ thủ công.');
+                }
+              }
             }
+          } else {
+            // Không có items, chỉ cần cập nhật status
+            await client.from('orders').update({'status': status}).eq('id', orderId);
           }
         }
-
-        await client.from('orders').update({'status': status}).eq('id', orderId);
       } catch (e) {
         debugPrint('[updateOrderStatus] Supabase error: $e');
       }
@@ -2128,30 +2176,51 @@ class DatabaseHelper {
 
       final oldStatus = orderRows.first['status'] as String?;
 
-      await tx.update(
-        ordersTable,
-        {'status': status},
-        where: 'id = ?',
-        whereArgs: [orderId],
-      );
-
-      // Trả lại tồn kho SQLite local khi đơn bị huỷ
-      if (status == 'cancelled' && oldStatus != 'cancelled') {
-        final items = await tx.query(
-          orderItemsTable,
-          columns: ['variant_id', 'quantity'],
-          where: 'order_id = ?',
+      if (status != oldStatus) {
+        await tx.update(
+          ordersTable,
+          {'status': status},
+          where: 'id = ?',
           whereArgs: [orderId],
         );
-        for (final item in items) {
-          await tx.rawUpdate(
-            '''
-            UPDATE $productVariantsTable
-            SET stock = stock + ?
-            WHERE id = ?
-          ''',
-            [item['quantity'], item['variant_id']],
+
+        // Trả lại tồn kho SQLite local khi đơn bị huỷ
+        if (status == 'cancelled' && oldStatus != 'cancelled') {
+          final items = await tx.query(
+            orderItemsTable,
+            columns: ['variant_id', 'quantity'],
+            where: 'order_id = ?',
+            whereArgs: [orderId],
           );
+          for (final item in items) {
+            await tx.rawUpdate(
+              '''
+              UPDATE $productVariantsTable
+              SET stock = stock + ?
+              WHERE id = ?
+            ''',
+              [item['quantity'], item['variant_id']],
+            );
+          }
+        }
+        // Trừ lại tồn kho SQLite local khi đơn được phục hồi từ trạng thái huỷ
+        else if (status != 'cancelled' && oldStatus == 'cancelled') {
+          final items = await tx.query(
+            orderItemsTable,
+            columns: ['variant_id', 'quantity'],
+            where: 'order_id = ?',
+            whereArgs: [orderId],
+          );
+          for (final item in items) {
+            await tx.rawUpdate(
+              '''
+              UPDATE $productVariantsTable
+              SET stock = stock - ?
+              WHERE id = ?
+            ''',
+              [item['quantity'], item['variant_id']],
+            );
+          }
         }
       }
     });

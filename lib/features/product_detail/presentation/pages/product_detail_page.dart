@@ -583,9 +583,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isAdminViewingAsUser = context.select<AuthCubit, bool>(
-      (cubit) => cubit.state.isAdmin,
-    );
+    final isAdminViewingAsUser = false;
 
     // Dữ liệu hiển thị từ View
     final String categoryName =
@@ -636,16 +634,20 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                       final productId = int.tryParse(widget.product.id);
                       if (productId == null) return;
 
-                      await DatabaseHelper.instance.toggleFavorite(
+                      final isFav = await DatabaseHelper.instance.toggleFavorite(
                         1,
                         productId,
                       );
-                      await _checkFavoriteStatus();
+                      if (mounted) {
+                        setState(() {
+                          _isFavorite = isFav;
+                        });
+                      }
 
                       if (context.mounted) {
                         AppNotifications.showSuccessSnackBar(
                           context,
-                          _isFavorite
+                          isFav
                               ? 'Đã thêm vào yêu thích'
                               : 'Đã xóa khỏi yêu thích',
                         );

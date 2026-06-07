@@ -682,14 +682,14 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
   Future<void> _toggleFavorite() async {
     final productId = int.tryParse(widget.product.id);
     if (productId != null) {
-      await DatabaseHelper.instance.toggleFavorite(1, productId);
+      final newFav = await DatabaseHelper.instance.toggleFavorite(1, productId);
       setState(() {
-        _isFav = !_isFav;
+        _isFav = newFav;
       });
       if (mounted) {
         AppNotifications.showSuccessSnackBar(
           context,
-          _isFav ? 'Đã thêm vào mục yêu thích' : 'Đã xóa khỏi mục yêu thích',
+          newFav ? 'Đã thêm vào mục yêu thích' : 'Đã xóa khỏi mục yêu thích',
         );
       }
     }

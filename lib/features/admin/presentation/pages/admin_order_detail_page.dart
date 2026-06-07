@@ -175,14 +175,7 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
   Future<void> _changeStatus(String newStatus) async {
     setState(() => _isUpdating = true);
     try {
-      if (_usesSupabase) {
-        await Supabase.instance.client
-            .from('orders')
-            .update({'status': newStatus})
-            .eq('id', widget.orderId);
-      } else {
-        await _db.updateOrderStatus(widget.orderId, newStatus);
-      }
+      await _db.updateOrderStatus(widget.orderId, newStatus);
       await _loadDetail();
     } catch (e) {
       if (mounted) {
