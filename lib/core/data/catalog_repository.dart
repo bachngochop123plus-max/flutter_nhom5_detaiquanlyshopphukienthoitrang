@@ -382,7 +382,7 @@ class CatalogRepository {
     final variantRows =
         await client
                 .from('product_variants')
-                .select('color, size')
+                .select('color, size, stock, price_delta')
                 .eq('product_id', productId)
             as List<dynamic>;
 
@@ -390,7 +390,15 @@ class CatalogRepository {
         .map((item) => Map<String, dynamic>.from(item as Map))
         .map((item) => item['image_url']?.toString() ?? '')
         .map(_toPublicImageUrl)
-        .where((item) => item.isNotEmpty)
+        .map((url) => url.trim())
+        .where((url) =>
+            url.isNotEmpty &&
+            url != 'null' &&
+            url != 'undefined' &&
+            !url.toLowerCase().contains('placeholder') &&
+            !url.endsWith('/null') &&
+            !url.endsWith('/undefined'))
+        .toSet()
         .toList(growable: false);
 
     final colors = variantRows
@@ -407,6 +415,16 @@ class CatalogRepository {
         .toSet()
         .toList(growable: false);
 
+    final variantsList = variantRows.map((item) {
+      final map = Map<String, dynamic>.from(item as Map);
+      return {
+        'color': map['color']?.toString(),
+        'size': map['size']?.toString(),
+        'stock': (map['stock'] as num? ?? 0).toInt(),
+        'price_delta': (map['price_delta'] as num? ?? 0.0).toDouble(),
+      };
+    }).toList();
+
     final thumbnail = _toPublicImageUrl(row['thumbnail']?.toString() ?? '');
     final fallbackImage = gallery.isNotEmpty ? gallery.first : '';
 
@@ -422,6 +440,7 @@ class CatalogRepository {
       gallery: gallery,
       availableColors: colors,
       availableSizes: sizes,
+      variants: variantsList,
     );
   }
 

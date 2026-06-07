@@ -735,13 +735,88 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
     _controller.animateTo(1.0);
   }
 
+  String _resolveImageUrl(String path) {
+    final clean = path.trim();
+    if (clean.isEmpty) return '';
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      return clean;
+    }
+    if (clean.startsWith('assets/') || clean.startsWith('images/')) {
+      return clean;
+    }
+    var normalized = clean;
+    if (normalized.startsWith('/')) {
+      normalized = normalized.substring(1);
+    }
+    if (!normalized.startsWith('Img_Product/')) {
+      normalized = 'Img_Product/$normalized';
+    }
+    return 'https://qkweoptutabbzulsrpas.supabase.co/storage/v1/object/public/Img_products/$normalized';
+  }
+
+  Widget _buildSafeImage(String imageUrl) {
+    final cleanUrl = _resolveImageUrl(imageUrl);
+    if (cleanUrl.isEmpty) {
+      return Container(
+        color: Colors.grey[200],
+        child: const Center(
+          child: Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+        ),
+      );
+    }
+    if (cleanUrl.startsWith('assets/') || cleanUrl.startsWith('images/')) {
+      return Image.asset(
+        cleanUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: Colors.grey[200],
+          child: const Center(
+            child: Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+    return CachedNetworkImage(
+      imageUrl: cleanUrl,
+      fit: BoxFit.cover,
+      placeholder: (context, url) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFFC6A15B)),
+      ),
+      errorWidget: (context, url, error) => Container(
+        color: Colors.grey[200],
+        child: const Center(
+          child: Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final displayImageUrl = widget.product.imageUrl.isNotEmpty
-        ? widget.product.imageUrl
-        : (widget.product.gallery.isNotEmpty ? widget.product.gallery.first : '');
+    final cleanImgUrl = _resolveImageUrl(widget.product.imageUrl);
+    final isImgUrlValid = cleanImgUrl.isNotEmpty &&
+        cleanImgUrl != 'null' &&
+        cleanImgUrl != 'undefined' &&
+        !cleanImgUrl.endsWith('/null') &&
+        !cleanImgUrl.endsWith('/undefined') &&
+        !cleanImgUrl.toLowerCase().contains('placeholder');
+
+    final displayImageUrl = isImgUrlValid
+        ? cleanImgUrl
+        : widget.product.gallery
+            .map((url) => _resolveImageUrl(url))
+            .firstWhere(
+              (url) =>
+                  url.isNotEmpty &&
+                  url != 'null' &&
+                  url != 'undefined' &&
+                  !url.endsWith('/null') &&
+                  !url.endsWith('/undefined') &&
+                  !url.toLowerCase().contains('placeholder'),
+              orElse: () => '',
+            );
 
     return GestureDetector(
       onTapDown: _onTapDown,
@@ -780,14 +855,7 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
                     children: [
                       Hero(
                         tag: 'product-image-${widget.product.id}',
-                        child: CachedNetworkImage(
-                          imageUrl: displayImageUrl,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) =>
-                              const Center(child: CircularProgressIndicator()),
-                          errorWidget: (context, url, error) =>
-                              const Icon(Icons.image_not_supported_outlined),
-                        ),
+                        child: _buildSafeImage(displayImageUrl),
                       ),
                       if (widget.product.isDiscounted)
                         Positioned(
