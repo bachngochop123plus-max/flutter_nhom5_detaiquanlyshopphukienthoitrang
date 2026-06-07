@@ -1076,11 +1076,9 @@ class DatabaseHelper {
       );
     }
 
-    final where =
-        conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
+    final where = conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         o.*,
         u.full_name AS customer_name,
@@ -1089,9 +1087,7 @@ class DatabaseHelper {
       LEFT JOIN $usersTable u ON u.id = o.user_id
       $where
       ORDER BY o.order_date DESC
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Full order detail including items, product name, color, size, thumbnail.
@@ -1132,10 +1128,7 @@ class DatabaseHelper {
       [orderId],
     );
 
-    return {
-      ...orderRows.first,
-      'order_items': itemRows,
-    };
+    return {...orderRows.first, 'order_items': itemRows};
   }
 
   /// Places an order and decrements stock atomically.
@@ -1335,8 +1328,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT
         COUNT(*)          AS total_orders,
         COALESCE(SUM(o.total_amount), 0) AS total_revenue,
@@ -1347,9 +1339,7 @@ class DatabaseHelper {
         SUM(CASE WHEN o.status = 'pending'    THEN 1 ELSE 0 END) AS pending_count
       FROM $ordersTable o
       $where
-      ''',
-      args,
-    );
+      ''', args);
     return rows.isNotEmpty ? rows.first : {};
   }
 
@@ -1382,8 +1372,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         strftime('%Y-%m-%d', o.order_date) AS day,
         COALESCE(SUM(o.total_amount), 0)   AS revenue,
@@ -1392,9 +1381,7 @@ class DatabaseHelper {
       $where
       GROUP BY day
       ORDER BY day ASC
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Top sản phẩm bán chạy theo doanh thu trong khoảng thời gian.
@@ -1428,8 +1415,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         p.name                                         AS product_name,
         p.thumbnail                                    AS thumbnail,
@@ -1443,9 +1429,7 @@ class DatabaseHelper {
       GROUP BY p.id
       ORDER BY total_revenue DESC
       LIMIT ?
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Doanh thu theo danh mục trong khoảng thời gian.
@@ -1477,8 +1461,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         c.name                                  AS category_name,
         SUM(oi.quantity * oi.price_at_purchase) AS total_revenue,
@@ -1491,8 +1474,6 @@ class DatabaseHelper {
       $where
       GROUP BY c.id
       ORDER BY total_revenue DESC
-      ''',
-      args,
-    );
+      ''', args);
   }
 }

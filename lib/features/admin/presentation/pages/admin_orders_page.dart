@@ -1,11 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/config/supabase_config.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/order_model.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/base_screen.dart';
 import 'admin_order_detail_page.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Top-level constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _kOrderStatuses = [
+  (null, 'Tất cả'),
+  ('pending', 'Chờ xử lý'),
+  ('processing', 'Đang xử lý'),
+  ('shipped', 'Đang giao'),
+  ('delivered', 'Đã giao'),
+  ('cancelled', 'Đã huỷ'),
+];
+
+enum _FilterMode { day, month, year }
 
 class AdminOrdersPage extends StatefulWidget {
   const AdminOrdersPage({super.key});
@@ -16,14 +34,65 @@ class AdminOrdersPage extends StatefulWidget {
 
 class _AdminOrdersPageState extends State<AdminOrdersPage> {
   final _db = GetIt.instance<DatabaseHelper>();
-  final _dateFormat = DateFormat('dd/MM/yyyy');
+  final _dateFmt = DateFormat('dd/MM/yyyy');
 
   List<OrderModel> _orders = [];
   bool _isLoading = true;
   String? _error;
 
-  DateTime? _fromDate;
-  DateTime? _toDate;
+  // ── Filter state
+  _FilterMode _filterMode = _FilterMode.day;
+
+  // Day mode
+  DateTime? _selectedDay;
+
+  // Month mode
+  int? _selectedMonth;
+  int? _selectedMonthYear;
+
+  // Year mode
+  int? _selectedYear;
+
+  // Status filter
+  String? _statusFilter;
+
+  DateTime? get _fromDate {
+    switch (_filterMode) {
+      case _FilterMode.day:
+        if (_selectedDay == null) return null;
+        return DateTime(
+            _selectedDay!.year, _selectedDay!.month, _selectedDay!.day);
+      case _FilterMode.month:
+        if (_selectedMonth == null || _selectedMonthYear == null) return null;
+        return DateTime(_selectedMonthYear!, _selectedMonth!, 1);
+      case _FilterMode.year:
+        if (_selectedYear == null) return null;
+        return DateTime(_selectedYear!, 1, 1);
+    }
+  }
+
+  DateTime? get _toDate {
+    switch (_filterMode) {
+      case _FilterMode.day:
+        if (_selectedDay == null) return null;
+        return DateTime(
+            _selectedDay!.year, _selectedDay!.month, _selectedDay!.day, 23, 59, 59);
+      case _FilterMode.month:
+        if (_selectedMonth == null || _selectedMonthYear == null) return null;
+        final lastDay = DateTime(_selectedMonthYear!, _selectedMonth! + 1, 0);
+        return DateTime(lastDay.year, lastDay.month, lastDay.day, 23, 59, 59);
+      case _FilterMode.year:
+        if (_selectedYear == null) return null;
+        return DateTime(_selectedYear!, 12, 31, 23, 59, 59);
+    }
+  }
+
+  bool get _hasFilter =>
+      _selectedDay != null ||
+      (_selectedMonth != null && _selectedMonthYear != null) ||
+      _selectedYear != null;
+
+  bool get _usesSupabase => SupabaseConfig.instance.isConfigured;
 
   @override
   void initState() {
@@ -37,9 +106,21 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
       _error = null;
     });
     try {
-      final rows = await _db.getAdminOrders(from: _fromDate, to: _toDate);
+      List<OrderModel> orders;
+
+      if (_usesSupabase) {
+        orders = await _fetchOrdersFromSupabase();
+      } else {
+        final rows =
+            await _db.getAdminOrders(from: _fromDate, to: _toDate);
+        orders = rows.map(OrderModel.fromMap).toList();
+      }
+
+      if (_statusFilter != null) {
+        orders = orders.where((o) => o.status == _statusFilter).toList();
+      }
       setState(() {
-        _orders = rows.map(OrderModel.fromMap).toList();
+        _orders = orders;
         _isLoading = false;
       });
     } catch (e) {
@@ -50,50 +131,81 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     }
   }
 
-  Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
-      initialDateRange: (_fromDate != null && _toDate != null)
-          ? DateTimeRange(start: _fromDate!, end: _toDate!)
-          : null,
-      helpText: 'Chọn khoảng thời gian',
-      cancelText: 'Huỷ',
-      confirmText: 'Xác nhận',
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-              primary: const Color(0xFFC6A15B),
-              onPrimary: Colors.white,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
+  /// Lấy đơn hàng trực tiếp từ Supabase (join users để có tên khách hàng)
+  Future<List<OrderModel>> _fetchOrdersFromSupabase() async {
+    final client = Supabase.instance.client;
 
-    if (picked != null) {
-      setState(() {
-        _fromDate = picked.start;
-        _toDate = picked.end;
-      });
-      await _loadOrders();
+    // Build query — filters MUST come before .order()
+    var q = client
+        .from('orders')
+        .select('*');
+
+    if (_fromDate != null) {
+      q = q.gte('order_date', _fromDate!.toIso8601String());
     }
+    if (_toDate != null) {
+      q = q.lte('order_date', _toDate!.toIso8601String());
+    }
+
+    final rows =
+        await q.order('order_date', ascending: false) as List<dynamic>;
+
+    return rows.map((raw) {
+      final row = Map<String, dynamic>.from(raw as Map);
+
+      int safeInt(dynamic val) {
+        if (val == null) return 0;
+        if (val is int) return val;
+        if (val is num) return val.toInt();
+        if (val is String) return int.tryParse(val) ?? val.hashCode;
+        return 0;
+      }
+
+      double safeDouble(dynamic val) {
+        if (val == null) return 0.0;
+        if (val is double) return val;
+        if (val is num) return val.toDouble();
+        if (val is String) return double.tryParse(val) ?? 0.0;
+        return 0.0;
+      }
+
+      final userId = safeInt(row['user_id']);
+
+      return OrderModel(
+        id: safeInt(row['id']),
+        userId: userId,
+        orderDate: DateTime.tryParse(row['order_date']?.toString() ?? '') ?? DateTime.now(),
+        totalAmount: safeDouble(row['total_amount']),
+        status: row['status']?.toString() ?? 'pending',
+        paymentStatus: row['payment_status']?.toString() ?? 'unpaid',
+        shippingAddress: row['shipping_address']?.toString() ?? '',
+        paymentMethod: row['payment_method']?.toString(),
+        customerName: 'Khách hàng #$userId',
+      );
+    }).toList();
   }
 
   void _clearFilter() {
     setState(() {
-      _fromDate = null;
-      _toDate = null;
+      _selectedDay = null;
+      _selectedMonth = null;
+      _selectedMonthYear = null;
+      _selectedYear = null;
     });
     _loadOrders();
   }
 
+  double get _totalAmount =>
+      _orders.fold(0, (sum, o) => sum + o.totalAmount);
+
   @override
   Widget build(BuildContext context) {
-    final hasFilter = _fromDate != null || _toDate != null;
+    final theme = Theme.of(context);
+    final currencyFmt = NumberFormat.currency(
+      locale: 'vi_VN',
+      symbol: '₫',
+      decimalDigits: 0,
+    );
 
     return BaseScreen(
       title: 'Quản lý đơn hàng',
@@ -112,30 +224,101 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
       ],
       body: Column(
         children: [
-          _DateFilterBar(
-            fromDate: _fromDate,
-            toDate: _toDate,
-            dateFormat: _dateFormat,
-            hasFilter: hasFilter,
-            onPickRange: _pickDateRange,
+          // ── Filter panel
+          _FilterPanel(
+            filterMode: _filterMode,
+            selectedDay: _selectedDay,
+            selectedMonth: _selectedMonth,
+            selectedMonthYear: _selectedMonthYear,
+            selectedYear: _selectedYear,
+            statusFilter: _statusFilter,
+            hasFilter: _hasFilter,
+            onModeChanged: (mode) {
+              setState(() {
+                _filterMode = mode;
+                _selectedDay = null;
+                _selectedMonth = null;
+                _selectedMonthYear = null;
+                _selectedYear = null;
+              });
+            },
+            onDaySelected: (day) {
+              setState(() => _selectedDay = day);
+              _loadOrders();
+            },
+            onMonthSelected: (month, year) {
+              setState(() {
+                _selectedMonth = month;
+                _selectedMonthYear = year;
+              });
+              _loadOrders();
+            },
+            onYearSelected: (year) {
+              setState(() => _selectedYear = year);
+              _loadOrders();
+            },
+            onStatusChanged: (s) {
+              setState(() => _statusFilter = s);
+              _loadOrders();
+            },
             onClear: _clearFilter,
           ),
+
+          // ── Summary bar (when has filter result)
+          if (!_isLoading && _orders.isNotEmpty)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color:
+                  AppColors.luxuryGold.withValues(alpha: 0.06),
+              child: Row(
+                children: [
+                  Text(
+                    '${_orders.length} đơn hàng',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.luxuryGold,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Tổng: ${currencyFmt.format(_totalAmount)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.luxuryGold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // ── Content
           Expanded(
             child: _isLoading
                 ? const Center(
                     child: CircularProgressIndicator(
-                      color: Color(0xFFC6A15B),
+                      color: AppColors.luxuryGold,
                     ),
                   )
                 : _error != null
-                ? _ErrorView(error: _error!, onRetry: _loadOrders)
-                : _orders.isEmpty
-                ? _EmptyView(hasFilter: hasFilter, onClear: _clearFilter)
-                : _OrderList(
-                    orders: _orders,
-                    dateFormat: _dateFormat,
-                    onTap: (order) => _openDetail(order),
-                  ),
+                    ? _ErrorView(error: _error!, onRetry: _loadOrders)
+                    : _orders.isEmpty
+                        ? _EmptyView(
+                            hasFilter: _hasFilter,
+                            onClear: _clearFilter,
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _orders.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) => _OrderCard(
+                              order: _orders[index],
+                              dateFmt: _dateFmt,
+                              currencyFmt: currencyFmt,
+                              onTap: () => _openDetail(_orders[index]),
+                            ),
+                          ),
           ),
         ],
       ),
@@ -152,157 +335,471 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Date filter bar
+// Filter panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _DateFilterBar extends StatelessWidget {
-  const _DateFilterBar({
-    required this.fromDate,
-    required this.toDate,
-    required this.dateFormat,
+class _FilterPanel extends StatelessWidget {
+  const _FilterPanel({
+    required this.filterMode,
+    required this.selectedDay,
+    required this.selectedMonth,
+    required this.selectedMonthYear,
+    required this.selectedYear,
+    required this.statusFilter,
     required this.hasFilter,
-    required this.onPickRange,
+    required this.onModeChanged,
+    required this.onDaySelected,
+    required this.onMonthSelected,
+    required this.onYearSelected,
+    required this.onStatusChanged,
     required this.onClear,
   });
 
-  final DateTime? fromDate;
-  final DateTime? toDate;
-  final DateFormat dateFormat;
+  final _FilterMode filterMode;
+  final DateTime? selectedDay;
+  final int? selectedMonth;
+  final int? selectedMonthYear;
+  final int? selectedYear;
+  final String? statusFilter;
   final bool hasFilter;
-  final VoidCallback onPickRange;
+  final void Function(_FilterMode) onModeChanged;
+  final void Function(DateTime) onDaySelected;
+  final void Function(int month, int year) onMonthSelected;
+  final void Function(int) onYearSelected;
+  final void Function(String?) onStatusChanged;
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
           bottom: BorderSide(
-            color: const Color(0xFFC6A15B).withValues(alpha: 0.2),
+            color: AppColors.luxuryGold.withValues(alpha: 0.15),
           ),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.calendar_month_rounded,
-            size: 20,
-            color: Color(0xFFC6A15B),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: InkWell(
-              onTap: onPickRange,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: hasFilter
-                        ? const Color(0xFFC6A15B)
-                        : theme.colorScheme.outlineVariant,
+          // Mode tabs
+          Row(
+            children: [
+              _ModeTab(
+                label: 'Theo ngày',
+                icon: Icons.today_rounded,
+                isSelected: filterMode == _FilterMode.day,
+                onTap: () => onModeChanged(_FilterMode.day),
+              ),
+              const SizedBox(width: 8),
+              _ModeTab(
+                label: 'Theo tháng',
+                icon: Icons.calendar_month_rounded,
+                isSelected: filterMode == _FilterMode.month,
+                onTap: () => onModeChanged(_FilterMode.month),
+              ),
+              const SizedBox(width: 8),
+              _ModeTab(
+                label: 'Theo năm',
+                icon: Icons.date_range_rounded,
+                isSelected: filterMode == _FilterMode.year,
+                onTap: () => onModeChanged(_FilterMode.year),
+              ),
+              if (hasFilter) ...[
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Xóa bộ lọc',
+                  onPressed: onClear,
+                  icon: const Icon(
+                    Icons.filter_alt_off_rounded,
+                    color: AppColors.danger,
+                    size: 20,
                   ),
-                  borderRadius: BorderRadius.circular(10),
-                  color: hasFilter
-                      ? const Color(0xFFC6A15B).withValues(alpha: 0.08)
-                      : null,
+                  style: IconButton.styleFrom(
+                    backgroundColor:
+                        AppColors.danger.withValues(alpha: 0.1),
+                    minimumSize: const Size(34, 34),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        hasFilter
-                            ? '${dateFormat.format(fromDate!)}  →  ${dateFormat.format(toDate!)}'
-                            : 'Lọc theo khoảng thời gian...',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: hasFilter
-                              ? const Color(0xFFB9852E)
-                              : theme.colorScheme.onSurfaceVariant,
-                          fontWeight:
-                              hasFilter ? FontWeight.w600 : null,
-                        ),
-                      ),
-                    ),
-                    const Icon(
-                      Icons.arrow_drop_down_rounded,
-                      color: Color(0xFFC6A15B),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+              ],
+            ],
           ),
-          if (hasFilter) ...[
-            const SizedBox(width: 8),
-            IconButton(
-              tooltip: 'Xóa bộ lọc',
-              onPressed: onClear,
-              icon: const Icon(
-                Icons.close_rounded,
-                size: 18,
-                color: Color(0xFFB23A48),
+          const SizedBox(height: 10),
+
+          // Picker row
+          Row(
+            children: [
+              Expanded(
+                child: _buildPicker(context),
               ),
-              style: IconButton.styleFrom(
-                backgroundColor:
-                    const Color(0xFFB23A48).withValues(alpha: 0.1),
-                minimumSize: const Size(34, 34),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              const SizedBox(width: 10),
+              // Status filter
+              Expanded(
+                child: _buildStatusDropdown(context),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPicker(BuildContext context) {
+    switch (filterMode) {
+      case _FilterMode.day:
+        return _DayPicker(
+          selected: selectedDay,
+          onSelected: onDaySelected,
+        );
+      case _FilterMode.month:
+        return _MonthPicker(
+          selectedMonth: selectedMonth,
+          selectedYear: selectedMonthYear,
+          onSelected: onMonthSelected,
+        );
+      case _FilterMode.year:
+        return _YearPicker(
+          selected: selectedYear,
+          onSelected: onYearSelected,
+        );
+    }
+  }
+
+  Widget _buildStatusDropdown(BuildContext context) {
+    final theme = Theme.of(context);
+    return DropdownButtonFormField<String?>(
+      value: statusFilter,
+      isDense: true,
+      decoration: InputDecoration(
+        labelText: 'Trạng thái',
+        labelStyle: theme.textTheme.bodySmall,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: AppColors.luxuryGold.withValues(alpha: 0.25),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: AppColors.luxuryGold.withValues(alpha: 0.25),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.luxuryGold),
+        ),
+      ),
+      items: _kOrderStatuses
+          .map((entry) => DropdownMenuItem<String?>(
+                value: entry.$1,
+                child: Text(
+                  entry.$2,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ))
+          .toList(),
+      onChanged: onStatusChanged,
+    );
+  }
+}
+
+class _ModeTab extends StatelessWidget {
+  const _ModeTab({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.luxuryGold
+              : AppColors.luxuryGold.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 14,
+              color: isSelected ? Colors.white : AppColors.luxuryGold,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : AppColors.luxuryGold,
               ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Order list
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Day picker
+class _DayPicker extends StatelessWidget {
+  const _DayPicker({required this.selected, required this.onSelected});
 
-class _OrderList extends StatelessWidget {
-  const _OrderList({
-    required this.orders,
-    required this.dateFormat,
-    required this.onTap,
-  });
-
-  final List<OrderModel> orders;
-  final DateFormat dateFormat;
-  final void Function(OrderModel) onTap;
+  final DateTime? selected;
+  final void Function(DateTime) onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final currencyFormat = NumberFormat.currency(
-      locale: 'vi_VN',
-      symbol: '₫',
-      decimalDigits: 0,
-    );
+    final label = selected != null
+        ? DateFormat('dd/MM/yyyy').format(selected!)
+        : 'Chọn ngày';
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: orders.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final order = orders[index];
-        return _OrderCard(
-          order: order,
-          dateFormat: dateFormat,
-          currencyFormat: currencyFormat,
-          onTap: () => onTap(order),
+    return _PickerButton(
+      label: label,
+      icon: Icons.calendar_today_rounded,
+      hasValue: selected != null,
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: selected ?? DateTime.now(),
+          firstDate: DateTime(2020),
+          lastDate: DateTime.now().add(const Duration(days: 1)),
+          helpText: 'Chọn ngày',
+          cancelText: 'Hủy',
+          confirmText: 'Chọn',
+          builder: (ctx, child) => Theme(
+            data: Theme.of(ctx).copyWith(
+              colorScheme: Theme.of(ctx).colorScheme.copyWith(
+                primary: AppColors.luxuryGold,
+                onPrimary: Colors.white,
+              ),
+            ),
+            child: child!,
+          ),
         );
+        if (picked != null) onSelected(picked);
       },
+    );
+  }
+}
+
+// ── Month picker (dropdown style)
+class _MonthPicker extends StatelessWidget {
+  const _MonthPicker({
+    required this.selectedMonth,
+    required this.selectedYear,
+    required this.onSelected,
+  });
+
+  final int? selectedMonth;
+  final int? selectedYear;
+  final void Function(int month, int year) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final years = List.generate(6, (i) => now.year - i);
+    final months = List.generate(12, (i) => i + 1);
+    final currentYear = selectedYear ?? now.year;
+    final currentMonth = selectedMonth ?? now.month;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _CompactDropdown<int>(
+            label: 'Tháng',
+            value: selectedMonth,
+            items: months
+                .map((m) => DropdownMenuItem(
+                      value: m,
+                      child: Text('Tháng $m'),
+                    ))
+                .toList(),
+            onChanged: (m) {
+              if (m != null) onSelected(m, currentYear);
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _CompactDropdown<int>(
+            label: 'Năm',
+            value: selectedYear,
+            items: years
+                .map((y) => DropdownMenuItem(
+                      value: y,
+                      child: Text('$y'),
+                    ))
+                .toList(),
+            onChanged: (y) {
+              if (y != null) onSelected(currentMonth, y);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Year picker
+class _YearPicker extends StatelessWidget {
+  const _YearPicker({required this.selected, required this.onSelected});
+
+  final int? selected;
+  final void Function(int) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final years = List.generate(6, (i) => now.year - i);
+
+    return _CompactDropdown<int>(
+      label: 'Chọn năm',
+      value: selected,
+      items: years
+          .map((y) => DropdownMenuItem(value: y, child: Text('Năm $y')))
+          .toList(),
+      onChanged: (y) {
+        if (y != null) onSelected(y);
+      },
+    );
+  }
+}
+
+class _CompactDropdown<T> extends StatelessWidget {
+  const _CompactDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T? value;
+  final List<DropdownMenuItem<T>> items;
+  final void Function(T?) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DropdownButtonFormField<T>(
+      value: value,
+      isDense: true,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: theme.textTheme.bodySmall,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: AppColors.luxuryGold.withValues(alpha: 0.25),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: AppColors.luxuryGold.withValues(alpha: 0.25),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppColors.luxuryGold),
+        ),
+      ),
+      items: items,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _PickerButton extends StatelessWidget {
+  const _PickerButton({
+    required this.label,
+    required this.icon,
+    required this.hasValue,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool hasValue;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: hasValue
+              ? AppColors.luxuryGold.withValues(alpha: 0.08)
+              : theme.colorScheme.surface,
+          border: Border.all(
+            color: hasValue
+                ? AppColors.luxuryGold
+                : AppColors.luxuryGold.withValues(alpha: 0.25),
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: AppColors.luxuryGold,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: hasValue
+                      ? AppColors.luxuryGold
+                      : AppColors.softGray,
+                  fontWeight:
+                      hasValue ? FontWeight.w600 : FontWeight.normal,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(
+              Icons.arrow_drop_down_rounded,
+              color: AppColors.luxuryGold,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -314,30 +811,57 @@ class _OrderList extends StatelessWidget {
 class _OrderCard extends StatelessWidget {
   const _OrderCard({
     required this.order,
-    required this.dateFormat,
-    required this.currencyFormat,
+    required this.dateFmt,
+    required this.currencyFmt,
     required this.onTap,
   });
 
   final OrderModel order;
-  final DateFormat dateFormat;
-  final NumberFormat currencyFormat;
+  final DateFormat dateFmt;
+  final NumberFormat currencyFmt;
   final VoidCallback onTap;
+
+  (Color, String) _statusInfo() {
+    switch (order.status) {
+      case 'delivered':
+        return (AppColors.success, 'Đã giao');
+      case 'shipped':
+        return (const Color(0xFF1A73E8), 'Đang giao');
+      case 'processing':
+        return (AppColors.luxuryGold, 'Đang xử lý');
+      case 'cancelled':
+        return (AppColors.danger, 'Đã huỷ');
+      default:
+        return (AppColors.softGray, 'Chờ xử lý');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final (statusColor, statusLabel) = _statusInfo();
 
     return Material(
       color: theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(16),
-      elevation: 2,
-      shadowColor: Colors.black.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppColors.luxuryGold.withValues(alpha: 0.15),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -345,20 +869,19 @@ class _OrderCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color:
-                          const Color(0xFFC6A15B).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
+                          AppColors.luxuryGold.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       '#${order.id}',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFFB9852E),
+                      style: const TextStyle(
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
+                        color: AppColors.luxuryGold,
                       ),
                     ),
                   ),
@@ -366,67 +889,68 @@ class _OrderCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       order.customerName ?? 'Khách hàng #${order.userId}',
-                      style: theme.textTheme.titleSmall?.copyWith(
+                      style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  _OrderStatusBadge(status: order.status),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: statusColor.withValues(alpha: 0.4)),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 10),
               const Divider(height: 1),
               const SizedBox(height: 10),
 
-              // Info rows
-              _InfoRow(
-                icon: Icons.access_time_rounded,
-                label: 'Ngày đặt',
-                value: dateFormat.format(order.orderDate),
+              // Details
+              Row(
+                children: [
+                  _InfoChip(
+                    icon: Icons.access_time_rounded,
+                    text: dateFmt.format(order.orderDate),
+                  ),
+                  const SizedBox(width: 12),
+                  _InfoChip(
+                    icon: Icons.payments_outlined,
+                    text: currencyFmt.format(order.totalAmount),
+                    bold: true,
+                    color: AppColors.luxuryGold,
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
-              _InfoRow(
-                icon: Icons.payments_outlined,
-                label: 'Tổng tiền',
-                value: currencyFormat.format(order.totalAmount),
-                valueColor: const Color(0xFFB9852E),
-                valueBold: true,
-              ),
-              const SizedBox(height: 6),
-              _InfoRow(
-                icon: Icons.credit_card_rounded,
-                label: 'Thanh toán',
-                value: order.paymentStatusLabel,
-              ),
-              const SizedBox(height: 6),
-              _InfoRow(
+              _InfoChip(
                 icon: Icons.location_on_outlined,
-                label: 'Địa chỉ',
-                value: order.shippingAddress,
+                text: order.shippingAddress,
                 maxLines: 1,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
-              // Detail button
+              // Arrow
               Align(
                 alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  onPressed: onTap,
-                  style: FilledButton.styleFrom(
-                    backgroundColor:
-                        const Color(0xFFC6A15B).withValues(alpha: 0.12),
-                    foregroundColor: const Color(0xFFB9852E),
-                    minimumSize: const Size(0, 36),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Xem chi tiết'),
-                      SizedBox(width: 4),
-                      Icon(Icons.chevron_right_rounded, size: 18),
-                    ],
+                child: Text(
+                  'Xem chi tiết →',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.luxuryGold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -438,111 +962,44 @@ class _OrderCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Status badge & info row
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _OrderStatusBadge extends StatelessWidget {
-  const _OrderStatusBadge({required this.status});
-
-  final String status;
-
-  Color _bgColor() {
-    switch (status) {
-      case 'delivered':
-        return const Color(0xFF2D8F6F);
-      case 'shipped':
-        return const Color(0xFF1A73E8);
-      case 'processing':
-        return const Color(0xFFB9852E);
-      case 'cancelled':
-        return const Color(0xFFB23A48);
-      default:
-        return const Color(0xFF8C8C8C);
-    }
-  }
-
-  String _label() {
-    switch (status) {
-      case 'pending':
-        return 'Chờ xử lý';
-      case 'processing':
-        return 'Đang xử lý';
-      case 'shipped':
-        return 'Đang giao';
-      case 'delivered':
-        return 'Đã giao';
-      case 'cancelled':
-        return 'Đã huỷ';
-      default:
-        return status;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: _bgColor(),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        _label(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({
     required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-    this.valueBold = false,
+    required this.text,
+    this.bold = false,
+    this.color,
     this.maxLines,
   });
 
   final IconData icon;
-  final String label;
-  final String value;
-  final Color? valueColor;
-  final bool valueBold;
+  final String text;
+  final bool bold;
+  final Color? color;
   final int? maxLines;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Row(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
-        const SizedBox(width: 6),
-        SizedBox(
-          width: 85,
-          child: Text(
-            '$label:',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+        Icon(
+          icon,
+          size: 13,
+          color: color ?? AppColors.softGray,
         ),
-        Expanded(
+        const SizedBox(width: 4),
+        Flexible(
           child: Text(
-            value,
+            text,
             maxLines: maxLines,
             overflow:
                 maxLines != null ? TextOverflow.ellipsis : null,
             style: theme.textTheme.bodySmall?.copyWith(
               fontWeight:
-                  valueBold ? FontWeight.w700 : FontWeight.w500,
-              color: valueColor ?? theme.colorScheme.onSurface,
+                  bold ? FontWeight.w700 : FontWeight.w500,
+              color: color,
             ),
           ),
         ),
@@ -552,7 +1009,7 @@ class _InfoRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Empty & Error states
+// Empty & Error
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EmptyView extends StatelessWidget {
@@ -569,25 +1026,30 @@ class _EmptyView extends StatelessWidget {
         children: [
           Icon(
             Icons.receipt_long_outlined,
-            size: 72,
-            color: const Color(0xFFC6A15B).withValues(alpha: 0.4),
+            size: 64,
+            color: AppColors.luxuryGold.withValues(alpha: 0.35),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
             hasFilter
                 ? 'Không có đơn hàng trong khoảng thời gian này'
                 : 'Chưa có đơn hàng nào',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .bodyLarge
+                ?.copyWith(color: AppColors.softGray),
             textAlign: TextAlign.center,
           ),
           if (hasFilter) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: onClear,
-              icon: const Icon(Icons.close_rounded, size: 18),
+              icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
               label: const Text('Xóa bộ lọc'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.luxuryGold,
+                side: const BorderSide(color: AppColors.luxuryGold),
+              ),
             ),
           ],
         ],
@@ -610,32 +1072,24 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.error_outline_rounded,
-              size: 56,
-              color: Color(0xFFB23A48),
-            ),
+            const Icon(Icons.error_outline_rounded,
+                size: 56, color: AppColors.danger),
             const SizedBox(height: 16),
             Text(
-              'Có lỗi xảy ra khi tải đơn hàng',
+              'Có lỗi khi tải đơn hàng',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text(
-              error,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text(error,
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Thử lại'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFC6A15B),
-              ),
+                  backgroundColor: AppColors.luxuryGold),
             ),
           ],
         ),

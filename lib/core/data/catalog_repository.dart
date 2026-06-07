@@ -206,9 +206,10 @@ class CatalogRepository {
         .toList(growable: false);
   }
 
-  Future<Product> createProduct(Product draft) async {
+  Future<Product> createProduct(Product draft, {int defaultStock = 0}) async {
     if (_usesSupabase) {
-      final created = await _createProductInSupabase(draft);
+      final created = await _createProductInSupabase(draft,
+          defaultStock: defaultStock);
       final refreshed = await _fetchProductsFromSupabase();
       // Sync to SQLite cache after Supabase create
       await _databaseHelper.replaceCatalogProducts(refreshed);
@@ -216,7 +217,8 @@ class CatalogRepository {
       return created;
     }
 
-    final created = await _createProductInLocalDb(draft);
+    final created = await _createProductInLocalDb(draft,
+        defaultStock: defaultStock);
     _memoryProducts = [created, ..._memoryProducts];
     return created;
   }
@@ -239,6 +241,80 @@ class CatalogRepository {
         .where((product) => product.id != productId)
         .toList(growable: false);
   }
+
+  // ── Variant / stock management ──────────────────────────────────────────
+
+  /// Lấy tất cả variants của sản phẩm (id, color, size, stock).
+  /// Trả về list map với keys: id, color, size, stock.
+  Future<List<Map<String, dynamic>>> getVariantsForProduct(
+      String productId) async {
+    final parsedId = int.tryParse(productId);
+    if (parsedId == null) return [];
+
+    if (_usesSupabase) {
+      final client = Supabase.instance.client;
+      final rows = await client
+              .from('product_variants')
+              .select('id, color, size, stock')
+              .eq('product_id', parsedId)
+              .order('id', ascending: true)
+          as List<dynamic>;
+      return rows
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+    }
+
+    final rows =
+        await _databaseHelper.getVariantsForProduct(parsedId);
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  /// Cập nhật stock cho 1 variant.
+  Future<void> updateVariantStock(int variantId, int newStock) async {
+    if (_usesSupabase) {
+      final client = Supabase.instance.client;
+      await client.from('product_variants').update(
+        {'stock': newStock},
+      ).eq('id', variantId);
+      return;
+    }
+    await _databaseHelper.updateVariantStock(variantId, newStock);
+  }
+
+  /// Lấy gallery ảnh của sản phẩm (danh sách URL theo sort_order).
+  Future<List<String>> getGalleryForProduct(String productId) async {
+    final parsedId = int.tryParse(productId);
+    if (parsedId == null) return [];
+
+    if (_usesSupabase) {
+      final client = Supabase.instance.client;
+      final rows = await client
+              .from('product_images')
+              .select('image_url, sort_order')
+              .eq('product_id', parsedId)
+              .order('sort_order', ascending: true)
+          as List<dynamic>;
+      return rows
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .map((r) => r['image_url']?.toString() ?? '')
+          .where((url) => url.isNotEmpty)
+          .toList();
+    }
+
+    final db = await _databaseHelper.database;
+    final rows = await db.query(
+      DatabaseHelper.productImagesTable,
+      columns: ['image_url'],
+      where: 'product_id = ?',
+      whereArgs: [parsedId],
+      orderBy: 'sort_order ASC',
+    );
+    return rows
+        .map((r) => r['image_url']?.toString() ?? '')
+        .where((url) => url.isNotEmpty)
+        .toList();
+  }
+
 
   Future<List<Product>> _fetchProductsFromSupabase() async {
     final client = Supabase.instance.client;
@@ -399,7 +475,8 @@ class CatalogRepository {
     }
   }
 
-  Future<Product> _createProductInSupabase(Product draft) async {
+  Future<Product> _createProductInSupabase(Product draft,
+      {int defaultStock = 0}) async {
     final client = Supabase.instance.client;
     final categoryId = await _resolveCategoryId(client, draft.category);
     final inserted = await client
@@ -435,6 +512,7 @@ class CatalogRepository {
       productId,
       draft.availableColors,
       draft.availableSizes,
+      defaultStock: defaultStock,
     );
 
     return draft.copyWith(id: productId.toString());
@@ -520,7 +598,8 @@ class CatalogRepository {
     return path.trim();
   }
 
-  Future<Product> _createProductInLocalDb(Product draft) async {
+  Future<Product> _createProductInLocalDb(Product draft,
+      {int defaultStock = 0}) async {
     final db = await _databaseHelper.database;
     final categoryId = await _resolveLocalCategoryId(db, draft.category);
     final productId = await db.insert(DatabaseHelper.productsTable, {
@@ -550,6 +629,7 @@ class CatalogRepository {
       productId,
       draft.availableColors,
       draft.availableSizes,
+      defaultStock: defaultStock,
     );
 
     return draft.copyWith(id: productId.toString());
@@ -559,12 +639,13 @@ class CatalogRepository {
     SupabaseClient client,
     int productId,
     List<String> colors,
-    List<String> sizes,
-  ) async {
+    List<String> sizes, {
+    int defaultStock = 0,
+  }) async {
     if (colors.isEmpty && sizes.isEmpty) {
       await client.from('product_variants').insert({
         'product_id': productId,
-        'stock': 0,
+        'stock': defaultStock,
       });
       return;
     }
@@ -574,7 +655,7 @@ class CatalogRepository {
         await client.from('product_variants').insert({
           'product_id': productId,
           'size': size,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
       return;
@@ -585,7 +666,7 @@ class CatalogRepository {
         await client.from('product_variants').insert({
           'product_id': productId,
           'color': color,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
       return;
@@ -597,7 +678,7 @@ class CatalogRepository {
           'product_id': productId,
           'color': color,
           'size': size,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
     }
@@ -607,12 +688,13 @@ class CatalogRepository {
     dynamic db,
     int productId,
     List<String> colors,
-    List<String> sizes,
-  ) async {
+    List<String> sizes, {
+    int defaultStock = 0,
+  }) async {
     if (colors.isEmpty && sizes.isEmpty) {
       await db.insert(DatabaseHelper.productVariantsTable, {
         'product_id': productId,
-        'stock': 0,
+        'stock': defaultStock,
       });
       return;
     }
@@ -622,7 +704,7 @@ class CatalogRepository {
         await db.insert(DatabaseHelper.productVariantsTable, {
           'product_id': productId,
           'size': size,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
       return;
@@ -633,7 +715,7 @@ class CatalogRepository {
         await db.insert(DatabaseHelper.productVariantsTable, {
           'product_id': productId,
           'color': color,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
       return;
@@ -645,7 +727,7 @@ class CatalogRepository {
           'product_id': productId,
           'color': color,
           'size': size,
-          'stock': 0,
+          'stock': defaultStock,
         });
       }
     }
