@@ -11,7 +11,7 @@ class DatabaseHelper {
 
   static final DatabaseHelper instance = DatabaseHelper._();
   static const _databaseName = 'fashion_shop.db';
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 7;
   static const _legacyDefaultUserId = 1;
 
   // ── Core domain tables ──────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ class DatabaseHelper {
       onCreate: (db, _) async {
         await _createAllTables(db);
         await _seedRoles(db);
+        await _seedDemoData(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         // v1→v2 / v2→v3: legacy migrations (kept for existing installs)
@@ -70,9 +71,14 @@ class DatabaseHelper {
         if (oldVersion < 5) {
           await _migrateToV5(db);
         }
-        // v5→v6: add bank_info to users
+
+        // v5→v6: add v_product_detail view for unified variant and gallery fetching
         if (oldVersion < 6) {
           await _migrateToV6(db);
+        }
+        // v6→v7: seed full demo data (categories + products + product_images per product)
+        if (oldVersion < 7) {
+          await _seedDemoData(db);
         }
       },
     );
@@ -275,6 +281,17 @@ class DatabaseHelper {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_tags_tag ON $productTagsTable(tag)',
     );
+
+    // Create view v_product_detail (safe version without JSON functions)
+    await db.execute('DROP VIEW IF EXISTS v_product_detail');
+    await db.execute('''
+      CREATE VIEW v_product_detail AS
+      SELECT 
+        p.*,
+        c.name AS category_name
+      FROM products p
+      JOIN categories c ON c.id = p.category_id
+    ''');
   }
 
   // ── Seed data ────────────────────────────────────────────────────────────
@@ -305,7 +322,203 @@ class DatabaseHelper {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
-  // ── Migrations ───────────────────────────────────────────────────────────
+  // ── Demo seed data ───────────────────────────────────────────────────────
+  // Seed dữ liệu mẫu đầy đủ: categories, products, variants, tags, product_images
+  // product_images được phân riêng từng sản phẩm → gallery sidebar đúng logic
+
+  Future<void> _seedDemoData(Database db) async {
+    // 1. CATEGORIES
+    final catIds = <String, int>{};
+    for (final cat in [
+      {'name': 'Túi Xách Thời Trang', 'image_url': ''},
+      {'name': 'Kính Mắt Gentry', 'image_url': ''},
+      {'name': 'Đồng Hồ Cao Cấp', 'image_url': ''},
+      {'name': 'Trang Sức Quý Phái', 'image_url': ''},
+      {'name': 'Mũ & Nón Thời Trang', 'image_url': ''},
+    ]) {
+      final existing = await db.query(categoriesTable,
+          columns: ['id'], where: 'name = ?', whereArgs: [cat['name']], limit: 1);
+      if (existing.isNotEmpty) {
+        catIds[cat['name']!] = existing.first['id'] as int;
+      } else {
+        catIds[cat['name']!] = await db.insert(categoriesTable, cat,
+            conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    }
+
+    // 2. PRODUCTS — thumbnail là ảnh chính hiển thị trong danh sách
+    // product_images sẽ là các ảnh gallery phụ cho từng sản phẩm
+    final products = [
+      // Túi Xách
+      {'cat': 'Túi Xách Thời Trang', 'name': 'Túi Xách Da Vân Cá Sấu Đen',
+        'desc': 'Thiết kế sang trọng quai bện thừng thủ công.', 'price': 450000.0,
+        'thumb': 'Img_Product/Img_04.webp', 'discount': 1,
+        'images': ['Img_Product/tui_xach_1.webp', 'Img_Product/tui_xach_2.webp', 'Img_Product/tui_xach_3.webp']},
+      {'cat': 'Túi Xách Thời Trang', 'name': 'Túi Hộp Nữ Họa Tiết Gấu',
+        'desc': 'Chất liệu da PU dập họa tiết chìm trẻ trung.', 'price': 385000.0,
+        'thumb': 'Img_Product/Img05.webp', 'discount': 0,
+        'images': ['Img_Product/tui_xach_4.webp', 'Img_Product/tui_xach_5.webp', 'Img_Product/tui_xach_6.webp']},
+      {'cat': 'Túi Xách Thời Trang', 'name': 'Túi Tote Đỏ Đô Khóa Vàng',
+        'desc': 'Form rộng thanh lịch, phù hợp cho công sở.', 'price': 520000.0,
+        'thumb': 'Img_Product/Img06.webp', 'discount': 0,
+        'images': ['Img_Product/tui_xach_7.webp', 'Img_Product/tui_xach_8.webp', 'Img_Product/tui_xach_9.webp']},
+      // Kính Mắt
+      {'cat': 'Kính Mắt Gentry', 'name': 'Kính Mát Chữ Nhật Retro',
+        'desc': 'Gọng nhựa dày phong cách unisex cổ điển.', 'price': 120000.0,
+        'thumb': 'Img_Product/Img01.webp', 'discount': 1,
+        'images': ['Img_Product/kinh_1.webp', 'Img_Product/kinh_2.webp', 'Img_Product/kinh_3.webp']},
+      {'cat': 'Kính Mắt Gentry', 'name': 'Kính Gọng Kim Loại Vuông',
+        'desc': 'Gọng mảnh mạ vàng cao cấp.', 'price': 195000.0,
+        'thumb': 'Img_Product/Img02.webp', 'discount': 0,
+        'images': ['Img_Product/kinh_4.webp', 'Img_Product/kinh_5.webp', 'Img_Product/kinh_6.webp']},
+      {'cat': 'Kính Mắt Gentry', 'name': 'Kính Mát Nữ Oversize Aviator',
+        'desc': 'Thiết kế bảo vệ toàn diện.', 'price': 150000.0,
+        'thumb': 'Img_Product/Img03.webp', 'discount': 0,
+        'images': ['Img_Product/kinh_7.webp', 'Img_Product/kinh_8.webp', 'Img_Product/kinh_9.webp']},
+      // Đồng Hồ
+      {'cat': 'Đồng Hồ Cao Cấp', 'name': 'Đồng Hồ Nam LIGE Mặt Đen',
+        'desc': 'Dây thép không gỉ.', 'price': 890000.0,
+        'thumb': 'Img_Product/Img07.webp', 'discount': 1,
+        'images': ['Img_Product/dong_ho_1.webp', 'Img_Product/dong_ho_2.webp', 'Img_Product/dong_ho_3.webp']},
+      {'cat': 'Đồng Hồ Cao Cấp', 'name': 'Đồng Hồ Vàng Luxury Full Gold',
+        'desc': 'Mạ vàng PVD cao cấp.', 'price': 1250000.0,
+        'thumb': 'Img_Product/Img08.webp', 'discount': 0,
+        'images': ['Img_Product/dong_ho_4.webp', 'Img_Product/dong_ho_5.webp', 'Img_Product/dong_ho_6.webp', 'Img_Product/dong_ho_7.webp']},
+      {'cat': 'Đồng Hồ Cao Cấp', 'name': 'Đồng Hồ Nữ Dây Da Classic',
+        'desc': 'Thiết kế tối giản.', 'price': 420000.0,
+        'thumb': 'Img_Product/Img09.webp', 'discount': 0,
+        'images': ['Img_Product/dong_ho_8.webp', 'Img_Product/dong_ho_9.webp', 'Img_Product/dong_ho_10.webp']},
+      // Trang Sức — Dây Chuyền
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Vòng Cổ Kim Cương Đa Tầng',
+        'desc': 'Trang sức dự tiệc.', 'price': 2500000.0,
+        'thumb': 'Img_Product/Img10.webp', 'discount': 0,
+        'images': ['Img_Product/day_chuyen_1.webp', 'Img_Product/day_chuyen_2.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Dây Chuyền Mặt Đá Khối Tròn',
+        'desc': 'Thiết kế xoáy.', 'price': 280000.0,
+        'thumb': 'Img_Product/Img11.webp', 'discount': 1,
+        'images': ['Img_Product/day_chuyen_3.webp', 'Img_Product/day_chuyen_4.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Bộ Vòng Cổ Layer Coin',
+        'desc': 'Phong cách Boho.', 'price': 350000.0,
+        'thumb': 'Img_Product/Img12.webp', 'discount': 0,
+        'images': ['Img_Product/day_chuyen_5.webp', 'Img_Product/day_chuyen_6.webp']},
+      // Trang Sức — Bông Tai
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Bông Tai Bạc Ý Nút Thắt',
+        'desc': 'Đính đá cao cấp.', 'price': 150000.0,
+        'thumb': 'Img_Product/Img13.webp', 'discount': 1,
+        'images': ['Img_Product/khuyen_tai_1.webp', 'Img_Product/khuyen_tai_2.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Set Bông Tai Tuyết & Ngọc Trai',
+        'desc': 'Bộ sưu tập.', 'price': 220000.0,
+        'thumb': 'Img_Product/Img14.webp', 'discount': 0,
+        'images': ['Img_Product/khuyen_tai_3.webp', 'Img_Product/khuyen_tai_4.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Bông Tai Bạc Chữ U Modern',
+        'desc': 'Hiện đại.', 'price': 180000.0,
+        'thumb': 'Img_Product/Img15.webp', 'discount': 0,
+        'images': ['Img_Product/khuyen_tai_5.webp']},
+      // Trang Sức — Nhẫn
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Nhẫn Đôi Bạc Everlasting',
+        'desc': 'Thiết kế hở.', 'price': 450000.0,
+        'thumb': 'Img_Product/Img16.webp', 'discount': 1,
+        'images': ['Img_Product/nhan_1.webp', 'Img_Product/nhan_2.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Nhẫn Cặp Bạc Hiểu Minh',
+        'desc': 'Bạc 925.', 'price': 480000.0,
+        'thumb': 'Img_Product/Img17.webp', 'discount': 0,
+        'images': ['Img_Product/nhan_3.webp']},
+      {'cat': 'Trang Sức Quý Phái', 'name': 'Nhẫn Cặp GIX Vàng Hồng',
+        'desc': 'Đính đá.', 'price': 1200000.0,
+        'thumb': 'Img_Product/Img18.webp', 'discount': 0,
+        'images': ['Img_Product/nhan_4.webp']},
+      // Mũ & Nón
+      {'cat': 'Mũ & Nón Thời Trang', 'name': 'Mũ Ca-pô Thủy Thủ Beret',
+        'desc': 'Vải nỉ cao cấp.', 'price': 195000.0,
+        'thumb': 'Img_Product/Img19.webp', 'discount': 0,
+        'images': ['Img_Product/mu_1.webp', 'Img_Product/mu_2.webp', 'Img_Product/mu_3.webp']},
+      {'cat': 'Mũ & Nón Thời Trang', 'name': 'Mũ Bucket Denim GC',
+        'desc': 'Streetwear.', 'price': 250000.0,
+        'thumb': 'Img_Product/Img20.webp', 'discount': 1,
+        'images': ['Img_Product/mu_4.webp', 'Img_Product/mu_5.webp']},
+    ];
+
+    for (final p in products) {
+      final catId = catIds[p['cat'] as String] ?? 0;
+      if (catId == 0) continue;
+
+      // Kiểm tra đã tồn tại chưa (tránh seed lại khi upgrade)
+      final exists = await db.query(productsTable,
+          columns: ['id'], where: 'thumbnail = ?',
+          whereArgs: [p['thumb']], limit: 1);
+      if (exists.isNotEmpty) continue;
+
+      final productId = await db.insert(productsTable, {
+        'category_id': catId,
+        'name': p['name'],
+        'description': p['desc'],
+        'base_price': p['price'],
+        'thumbnail': p['thumb'],
+        'is_discounted': p['discount'],
+        'is_active': 1,
+        'rating_avg': 0.0,
+        'rating_count': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      if (productId <= 0) continue;
+
+      // Seed product_images riêng cho từng sản phẩm (tự động sinh đủ ô gallery)
+      final images = p['images'] as List<String>;
+      for (var i = 0; i < images.length; i++) {
+        await db.insert(productImagesTable, {
+          'product_id': productId,
+          'image_url': images[i],
+          'sort_order': i + 1,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    }
+
+    // 3. VARIANTS
+    final variantSeeds = [
+      {'thumb': 'Img_Product/Img18.webp', 'color': 'Vàng Hồng', 'size': 'Nam (Size 18)', 'stock': 15, 'delta': 0.0},
+      {'thumb': 'Img_Product/Img18.webp', 'color': 'Vàng Hồng', 'size': 'Nữ (Size 15)', 'stock': 15, 'delta': 0.0},
+      {'thumb': 'Img_Product/Img01.webp', 'color': 'Đen',     'size': 'Free size',    'stock': 50, 'delta': 0.0},
+      {'thumb': 'Img_Product/Img01.webp', 'color': 'Nâu Trà', 'size': 'Free size',    'stock': 35, 'delta': 0.0},
+      {'thumb': 'Img_Product/Img_04.webp', 'color': 'Đen',   'size': 'Size M',        'stock': 20, 'delta': 0.0},
+      {'thumb': 'Img_Product/Img_04.webp', 'color': 'Đen',   'size': 'Size L',        'stock': 10, 'delta': 70000.0},
+    ];
+    for (final v in variantSeeds) {
+      final pRows = await db.query(productsTable,
+          columns: ['id'], where: 'thumbnail = ?', whereArgs: [v['thumb']], limit: 1);
+      if (pRows.isEmpty) continue;
+      final pid = pRows.first['id'] as int;
+      await db.insert(productVariantsTable, {
+        'product_id': pid,
+        'color': v['color'],
+        'size': v['size'],
+        'stock': v['stock'],
+        'price_delta': v['delta'],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+
+    // 4. TAGS
+    final tagSeeds = [
+      {'thumb': 'Img_Product/Img16.webp', 'tag': 'Couple'},
+      {'thumb': 'Img_Product/Img17.webp', 'tag': 'Couple'},
+      {'thumb': 'Img_Product/Img18.webp', 'tag': 'Couple'},
+      {'thumb': 'Img_Product/Img10.webp', 'tag': 'Luxury'},
+      {'thumb': 'Img_Product/Img08.webp', 'tag': 'Luxury'},
+      {'thumb': 'Img_Product/Img19.webp', 'tag': 'Streetwear'},
+      {'thumb': 'Img_Product/Img20.webp', 'tag': 'Streetwear'},
+    ];
+    for (final t in tagSeeds) {
+      final pRows = await db.query(productsTable,
+          columns: ['id'], where: 'thumbnail = ?', whereArgs: [t['thumb']], limit: 1);
+      if (pRows.isEmpty) continue;
+      final pid = pRows.first['id'] as int;
+      await db.insert(productTagsTable, {
+        'product_id': pid,
+        'tag': t['tag'],
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+  }
+
+
 
   Future<void> _migrateToV3(Database db) async {
     // Reproduce legacy v3 migration so old installs can still reach v4
@@ -465,13 +678,16 @@ class DatabaseHelper {
   }
 
   Future<void> _migrateToV6(Database db) async {
-    // Add bank_info column to users
-    final hasBankInfo = await _columnExists(db, usersTable, 'bank_info');
-    if (!hasBankInfo) {
-      await db.execute(
-        'ALTER TABLE $usersTable ADD COLUMN bank_info TEXT',
-      );
-    }
+
+    await db.execute('DROP VIEW IF EXISTS v_product_detail');
+    await db.execute('''
+      CREATE VIEW v_product_detail AS
+      SELECT 
+        p.*,
+        c.name AS category_name
+      FROM products p
+      JOIN categories c ON c.id = p.category_id
+    ''');
   }
 
   // ── Helper ───────────────────────────────────────────────────────────────
@@ -560,14 +776,21 @@ class DatabaseHelper {
 
     final variantRows = await db.query(
       productVariantsTable,
-      columns: ['color', 'size'],
+      columns: ['color', 'size', 'stock', 'price_delta'],
       where: 'product_id = ?',
       whereArgs: [productId],
     );
 
     final gallery = imageRows
-        .map((e) => e['image_url'])
-        .whereType<String>()
+        .map((e) => (e['image_url'] as String? ?? '').trim())
+        .where((url) =>
+            url.isNotEmpty &&
+            url != 'null' &&
+            url != 'undefined' &&
+            !url.toLowerCase().contains('placeholder') &&
+            !url.endsWith('/null') &&
+            !url.endsWith('/undefined'))
+        .toSet()
         .toList(growable: false);
     final colors = variantRows
         .map((e) => e['color'])
@@ -581,6 +804,13 @@ class DatabaseHelper {
         .where((v) => v.isNotEmpty)
         .toSet()
         .toList(growable: false);
+
+    final sqliteVariants = variantRows.map((v) => {
+      'color': v['color'],
+      'size': v['size'],
+      'stock': v['stock'] as int? ?? 0,
+      'price_delta': (v['price_delta'] as num? ?? 0.0).toDouble(),
+    }).toList();
 
     final thumbnail = (row['thumbnail'] as String?) ?? '';
     final fallbackImage = gallery.isNotEmpty ? gallery.first : '';
@@ -597,6 +827,7 @@ class DatabaseHelper {
       gallery: gallery,
       availableColors: colors,
       availableSizes: sizes,
+      variants: sqliteVariants,
     );
   }
 
@@ -669,38 +900,50 @@ class DatabaseHelper {
       });
     }
 
-    final colors = product.availableColors;
-    final sizes = product.availableSizes;
-    if (colors.isEmpty && sizes.isEmpty) {
-      await tx.insert(productVariantsTable, {
-        'product_id': productId,
-        'stock': 0,
-      });
-    } else if (colors.isEmpty) {
-      for (final size in sizes) {
+    if (product.variants != null && product.variants!.isNotEmpty) {
+      for (final variant in product.variants!) {
         await tx.insert(productVariantsTable, {
           'product_id': productId,
-          'size': size,
-          'stock': 0,
-        });
-      }
-    } else if (sizes.isEmpty) {
-      for (final color in colors) {
-        await tx.insert(productVariantsTable, {
-          'product_id': productId,
-          'color': color,
-          'stock': 0,
+          'color': variant['color'],
+          'size': variant['size'],
+          'stock': variant['stock'] ?? 0,
+          'price_delta': variant['price_delta'] ?? 0.0,
         });
       }
     } else {
-      for (final color in colors) {
+      final colors = product.availableColors;
+      final sizes = product.availableSizes;
+      if (colors.isEmpty && sizes.isEmpty) {
+        await tx.insert(productVariantsTable, {
+          'product_id': productId,
+          'stock': 0,
+        });
+      } else if (colors.isEmpty) {
         for (final size in sizes) {
           await tx.insert(productVariantsTable, {
             'product_id': productId,
-            'color': color,
             'size': size,
             'stock': 0,
           });
+        }
+      } else if (sizes.isEmpty) {
+        for (final color in colors) {
+          await tx.insert(productVariantsTable, {
+            'product_id': productId,
+            'color': color,
+            'stock': 0,
+          });
+        }
+      } else {
+        for (final color in colors) {
+          for (final size in sizes) {
+            await tx.insert(productVariantsTable, {
+              'product_id': productId,
+              'color': color,
+              'size': size,
+              'stock': 0,
+            });
+          }
         }
       }
     }
@@ -736,8 +979,23 @@ class DatabaseHelper {
   Future<void> replaceCatalogProducts(List<Product> products) async {
     final db = await database;
     await db.transaction((tx) async {
+      final syncedIds = <int>[];
       for (final product in products) {
         await _upsertLegacyProductInTx(tx, product);
+        final id = _parseLegacyProductId(product.id);
+        if (id != null) {
+          syncedIds.add(id);
+        }
+      }
+      if (syncedIds.isNotEmpty) {
+        final idPlaceholders = List.filled(syncedIds.length, '?').join(',');
+        await tx.delete(
+          productsTable,
+          where: 'id NOT IN ($idPlaceholders)',
+          whereArgs: syncedIds,
+        );
+      } else {
+        await tx.delete(productsTable);
       }
     });
   }
@@ -979,6 +1237,109 @@ class DatabaseHelper {
     return {...productRows.first, 'variants': variants, 'images': images};
   }
 
+  Future<Map<String, Object?>?> getProductDetailFromView(int productId) async {
+    final db = await database;
+    final rows = await db.query(
+      'v_product_detail',
+      where: 'id = ?',
+      whereArgs: [productId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+
+    final productDetail = Map<String, Object?>.from(rows.first);
+
+    // Tải các biến thể của sản phẩm thủ công
+    final variants = await db.query(
+      productVariantsTable,
+      where: 'product_id = ?',
+      whereArgs: [productId],
+    );
+
+    // Tải bộ sưu tập hình ảnh phụ thủ công
+    final images = await db.query(
+      productImagesTable,
+      where: 'product_id = ?',
+      whereArgs: [productId],
+      orderBy: 'sort_order ASC',
+    );
+
+    // Chuẩn hóa và map dữ liệu giống PostgreSQL để trả về JSON String
+    final mappedVariants = variants.map((v) => {
+      'id': v['id'],
+      'color': v['color'],
+      'size': v['size'],
+      'stock': v['stock'],
+      'price_delta': v['price_delta'],
+    }).toList();
+
+    final mappedImages = images.map((i) => {
+      'id': i['id'],
+      'image_url': i['image_url'],
+      'sort_order': i['sort_order'],
+    }).toList();
+
+    productDetail['variants'] = jsonEncode(mappedVariants);
+    productDetail['gallery'] = jsonEncode(mappedImages);
+
+    return productDetail;
+  }
+
+  Future<List<Map<String, Object?>>> getRelatedProductsWithFallback(
+    int productId,
+    int categoryId, {
+    int limit = 10,
+  }) async {
+    final db = await database;
+    // 1. Thử tìm theo tags trước
+    final tagged = await getRelatedProducts(productId, limit: limit);
+    if (tagged.isNotEmpty) return tagged;
+
+    // 2. Cùng danh mục — JOIN categories để có category_name cho _toLegacyProduct
+    final sameCategory = await db.rawQuery('''
+      SELECT p.*, c.name AS category_name
+      FROM $productsTable p
+      JOIN $categoriesTable c ON c.id = p.category_id
+      WHERE p.category_id = ? AND p.id != ? AND p.is_active = 1
+      LIMIT ?
+    ''', [categoryId, productId, limit]);
+    if (sameCategory.isNotEmpty) return sameCategory;
+
+    // 3. Fallback: tất cả sản phẩm active khác — JOIN để đầy đủ category_name
+    return db.rawQuery('''
+      SELECT p.*, c.name AS category_name
+      FROM $productsTable p
+      JOIN $categoriesTable c ON c.id = p.category_id
+      WHERE p.id != ? AND p.is_active = 1
+      LIMIT ?
+    ''', [productId, limit]);
+  }
+
+  Future<List<Product>> getRelatedProductsForDetail(
+    int productId,
+    String categoryName, {
+    int limit = 10,
+  }) async {
+    final db = await database;
+
+    // Resolve category id by name
+    final catRows = await db.query(
+      categoriesTable,
+      columns: ['id'],
+      where: 'name = ?',
+      whereArgs: [categoryName],
+      limit: 1,
+    );
+    final categoryId = catRows.isNotEmpty ? (catRows.first['id'] as int) : 0;
+
+    final rows = await getRelatedProductsWithFallback(productId, categoryId, limit: limit);
+    final list = <Product>[];
+    for (final row in rows) {
+      list.add(await _toLegacyProduct(db, row));
+    }
+    return list;
+  }
+
   Future<List<Map<String, Object?>>> getProductsByCategory(
     int categoryId,
   ) async {
@@ -1092,11 +1453,9 @@ class DatabaseHelper {
       );
     }
 
-    final where =
-        conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
+    final where = conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         o.*,
         u.full_name AS customer_name,
@@ -1105,9 +1464,7 @@ class DatabaseHelper {
       LEFT JOIN $usersTable u ON u.id = o.user_id
       $where
       ORDER BY o.order_date DESC
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Full order detail including items, product name, color, size, thumbnail.
@@ -1148,10 +1505,7 @@ class DatabaseHelper {
       [orderId],
     );
 
-    return {
-      ...orderRows.first,
-      'order_items': itemRows,
-    };
+    return {...orderRows.first, 'order_items': itemRows};
   }
 
   /// Lấy Variant ID dựa trên Product ID, Color và Size. 
@@ -1400,8 +1754,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT
         COUNT(*)          AS total_orders,
         COALESCE(SUM(o.total_amount), 0) AS total_revenue,
@@ -1412,9 +1765,7 @@ class DatabaseHelper {
         SUM(CASE WHEN o.status = 'pending'    THEN 1 ELSE 0 END) AS pending_count
       FROM $ordersTable o
       $where
-      ''',
-      args,
-    );
+      ''', args);
     return rows.isNotEmpty ? rows.first : {};
   }
 
@@ -1447,8 +1798,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         strftime('%Y-%m-%d', o.order_date) AS day,
         COALESCE(SUM(o.total_amount), 0)   AS revenue,
@@ -1457,9 +1807,7 @@ class DatabaseHelper {
       $where
       GROUP BY day
       ORDER BY day ASC
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Top sản phẩm bán chạy theo doanh thu trong khoảng thời gian.
@@ -1493,8 +1841,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         p.name                                         AS product_name,
         p.thumbnail                                    AS thumbnail,
@@ -1508,9 +1855,7 @@ class DatabaseHelper {
       GROUP BY p.id
       ORDER BY total_revenue DESC
       LIMIT ?
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Doanh thu theo danh mục trong khoảng thời gian.
@@ -1542,8 +1887,7 @@ class DatabaseHelper {
 
     final where = 'WHERE ${conditions.join(' AND ')}';
 
-    return db.rawQuery(
-      '''
+    return db.rawQuery('''
       SELECT
         c.name                                  AS category_name,
         SUM(oi.quantity * oi.price_at_purchase) AS total_revenue,
@@ -1556,9 +1900,7 @@ class DatabaseHelper {
       $where
       GROUP BY c.id
       ORDER BY total_revenue DESC
-      ''',
-      args,
-    );
+      ''', args);
   }
 
   /// Tính tổng số tiền đã mua của user (đã thanh toán hoặc nhận hàng thành công)

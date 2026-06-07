@@ -11,6 +11,7 @@ class Product {
     this.gallery = const [],
     this.availableColors = const [],
     this.availableSizes = const [],
+    this.variants,
   });
 
   final String id;
@@ -24,6 +25,7 @@ class Product {
   final List<String> gallery;
   final List<String> availableColors;
   final List<String> availableSizes;
+  final List<Map<String, dynamic>>? variants;
 
   Product copyWith({
     String? id,
@@ -37,6 +39,7 @@ class Product {
     List<String>? gallery,
     List<String>? availableColors,
     List<String>? availableSizes,
+    List<Map<String, dynamic>>? variants,
   }) {
     return Product(
       id: id ?? this.id,
@@ -50,6 +53,7 @@ class Product {
       gallery: gallery ?? this.gallery,
       availableColors: availableColors ?? this.availableColors,
       availableSizes: availableSizes ?? this.availableSizes,
+      variants: variants ?? this.variants,
     );
   }
 

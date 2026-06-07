@@ -1,9 +1,12 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/base_screen.dart';
 
 class AdminInventoryPage extends StatefulWidget {
@@ -15,177 +18,406 @@ class AdminInventoryPage extends StatefulWidget {
 
 class _AdminInventoryPageState extends State<AdminInventoryPage> {
   late final CatalogRepository _catalogRepository;
-  late List<Product> _products;
+  List<Product> _products = [];
+  List<Product> _filtered = [];
+  String _searchQuery = '';
+
+  final _currencyFmt = NumberFormat.currency(
+    locale: 'vi_VN',
+    symbol: '₫',
+    decimalDigits: 0,
+  );
 
   @override
   void initState() {
     super.initState();
     _catalogRepository = GetIt.instance<CatalogRepository>();
-    _products = _catalogRepository.getProducts();
+    _reloadProducts();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Refresh products when page is popped back from editor
     _reloadProducts();
   }
 
-  Future<void> _reloadProducts() async {
+  void _reloadProducts() {
     if (!mounted) return;
+    final prods = _catalogRepository.getProducts();
     setState(() {
-      _products = _catalogRepository.getProducts();
+      _products = prods;
+      _applyFilter();
     });
+  }
+
+  void _applyFilter() {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) {
+      _filtered = List.from(_products);
+    } else {
+      _filtered = _products
+          .where((p) =>
+              p.name.toLowerCase().contains(q) ||
+              p.category.toLowerCase().contains(q))
+          .toList();
+    }
   }
 
   Future<void> _confirmDelete(Product product) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Xoa san pham'),
-        content: Text('Ban chac chan muon xoa "${product.name}"?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Xác nhận xóa'),
+        content: Text('Bạn chắc chắn muốn xóa sản phẩm "${product.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Huy'),
+            child: const Text('Hủy'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFC62828),
+              backgroundColor: AppColors.danger,
             ),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Xoa'),
+            child: const Text('Xóa'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     await _catalogRepository.deleteProduct(product.id);
-    await _reloadProducts();
+    _reloadProducts();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Da xoa san pham: ${product.name}')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Đã xóa sản phẩm: ${product.name}'),
+        backgroundColor: AppColors.danger,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return BaseScreen(
-      title: 'Quan ly san pham',
+      title: 'Quản lý sản phẩm',
       leading: IconButton(
-        tooltip: 'Quay lai admin',
+        tooltip: 'Quay lại',
         onPressed: () => context.go('/admin'),
         icon: const Icon(Icons.arrow_back_ios_new_rounded),
       ),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: FilledButton.icon(
-            onPressed: () async {
-              final created = await context.push<bool>('/admin/inventory/new');
-              if (created == true) {
-                await _reloadProducts();
-              }
-            },
-            icon: const Icon(Icons.add),
-            label: const Text('Them san pham'),
+      automaticallyImplyLeading: false,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          final created = await context.push<bool>('/admin/inventory/new');
+          if (created == true) _reloadProducts();
+        },
+        backgroundColor: AppColors.luxuryGold,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Thêm sản phẩm'),
+      ),
+      body: Column(
+        children: [
+          // ── Search bar
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: TextField(
+              onChanged: (v) => setState(() {
+                _searchQuery = v;
+                _applyFilter();
+              }),
+              decoration: InputDecoration(
+                hintText: 'Tìm theo tên hoặc danh mục...',
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppColors.softGray,
+                ),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded,
+                            color: AppColors.softGray),
+                        onPressed: () => setState(() {
+                          _searchQuery = '';
+                          _applyFilter();
+                        }),
+                      )
+                    : null,
+                filled: true,
+                fillColor: theme.colorScheme.surface,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.luxuryGold.withValues(alpha: 0.2),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: AppColors.luxuryGold.withValues(alpha: 0.2),
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.luxuryGold,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-      ],
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFFFF9ED), Color(0xFFF3F8FF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+
+          // ── Count
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                Text(
+                  '${_filtered.length} sản phẩm',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.softGray,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Card(
+
+          // ── Product list
+          Expanded(
+            child: _filtered.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 64,
+                          color: AppColors.luxuryGold.withValues(alpha: 0.35),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _searchQuery.isEmpty
+                              ? 'Chưa có sản phẩm nào'
+                              : 'Không tìm thấy sản phẩm',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: AppColors.softGray,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                    itemCount: _filtered.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final product = _filtered[index];
+                      return _ProductTile(
+                        product: product,
+                        currencyFmt: _currencyFmt,
+                        onEdit: () async {
+                          final updated = await context.push<bool>(
+                            '/admin/inventory/edit',
+                            extra: product,
+                          );
+                          if (updated == true) _reloadProducts();
+                        },
+                        onDelete: () => _confirmDelete(product),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Product tile
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ProductTile extends StatelessWidget {
+  const _ProductTile({
+    required this.product,
+    required this.currencyFmt,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Product product;
+  final NumberFormat currencyFmt;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageUrl = product.imageUrl.isNotEmpty
+        ? product.imageUrl
+        : (product.gallery.isNotEmpty ? product.gallery.first : '');
+
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onEdit,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppColors.luxuryGold.withValues(alpha: 0.15),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Thumbnail
+              ClipRRect(
+                borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(14),
+                ),
+                child: SizedBox(
+                  width: 80,
+                  height: 80,
+                  child: imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => _placeholder(),
+                        )
+                      : _placeholder(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Info
+              Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Danh sach san pham',
-                        style: Theme.of(context).textTheme.titleLarge,
+                        product.name,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.luxuryGold.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          product.category,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AppColors.luxuryGold,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Text(
-                        'Nhan vao san pham de chinh sua. Dung nut thung rac de xoa.',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: _products.length,
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final product = _products[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: const Color(
-                                  0xFFC6A15B,
-                                ).withValues(alpha: 0.2),
-                                child: const Icon(Icons.inventory_2_outlined),
-                              ),
-                              title: Text(product.name, maxLines: 1),
-                              subtitle: Text(
-                                '${product.category} • ${product.price.toStringAsFixed(0)} đ',
-                              ),
-                              trailing: Wrap(
-                                spacing: 4,
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Chinh sua',
-                                    onPressed: () async {
-                                      final updated = await context.push<bool>(
-                                        '/admin/inventory/edit',
-                                        extra: product,
-                                      );
-                                      if (updated == true) {
-                                        await _reloadProducts();
-                                      }
-                                    },
-                                    icon: const Icon(Icons.edit_outlined),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Xoa',
-                                    onPressed: () => _confirmDelete(product),
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Color(0xFFC62828),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              onTap: () async {
-                                final updated = await context.push<bool>(
-                                  '/admin/inventory/edit',
-                                  extra: product,
-                                );
-                                if (updated == true) {
-                                  await _reloadProducts();
-                                }
-                              },
-                            );
-                          },
+                        currencyFmt.format(product.price),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.luxuryGold,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
+              // Actions
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _IconBtn(
+                      icon: Icons.edit_outlined,
+                      color: const Color(0xFF1A73E8),
+                      tooltip: 'Sửa',
+                      onTap: onEdit,
+                    ),
+                    const SizedBox(height: 4),
+                    _IconBtn(
+                      icon: Icons.delete_outline_rounded,
+                      color: AppColors.danger,
+                      tooltip: 'Xóa',
+                      onTap: onDelete,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder() {
+    return Container(
+      color: AppColors.luxuryGold.withValues(alpha: 0.08),
+      child: const Icon(
+        Icons.image_not_supported_outlined,
+        color: AppColors.luxuryGold,
+        size: 28,
+      ),
+    );
+  }
+}
+
+class _IconBtn extends StatelessWidget {
+  const _IconBtn({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
         ),
       ),
     );
