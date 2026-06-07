@@ -8,6 +8,7 @@ import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/services/supabase_storage_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 
 class AdminEditProductPage extends StatefulWidget {
@@ -212,36 +213,24 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
   Future<void> _deleteProduct() async {
     final product = widget.product;
     if (product == null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Xác nhận xóa'),
-        content: Text('Bạn chắc chắn muốn xóa "${product.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa'),
-          ),
-        ],
-      ),
+    AppNotifications.showConfirmationDialog(
+      context,
+      title: 'Xác nhận xóa',
+      content: 'Bạn chắc chắn muốn xóa "${product.name}"?',
+      confirmText: 'Xóa',
+      isDanger: true,
+      onConfirm: () async {
+        setState(() => _saving = true);
+        try {
+          await _catalogRepository.deleteProduct(product.id);
+          if (!mounted) return;
+          _showSnack('Đã xóa sản phẩm.');
+          _closeEditor(true);
+        } finally {
+          if (mounted) setState(() => _saving = false);
+        }
+      },
     );
-    if (confirmed != true) return;
-
-    setState(() => _saving = true);
-    try {
-      await _catalogRepository.deleteProduct(product.id);
-      if (!mounted) return;
-      _showSnack('Đã xóa sản phẩm.');
-      _closeEditor(true);
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
   }
 
   void _closeEditor([bool? result]) {
@@ -250,12 +239,11 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? AppColors.danger : AppColors.success,
-      ));
+    if (isError) {
+      AppNotifications.showErrorSnackBar(context, msg);
+    } else {
+      AppNotifications.showSuccessSnackBar(context, msg);
+    }
   }
 
   @override

@@ -173,7 +173,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
 
       return OrderModel(
         id: safeInt(row['id']),
-        userId: userId,
+        userId: userId.toString(),
         orderDate: DateTime.tryParse(row['order_date']?.toString() ?? '') ?? DateTime.now(),
         totalAmount: safeDouble(row['total_amount']),
         status: row['status']?.toString() ?? 'pending',

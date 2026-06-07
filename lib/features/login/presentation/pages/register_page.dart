@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/services/supabase_auth_repository.dart';
+import '../../../../core/widgets/app_notifications.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -134,78 +135,18 @@ class _RegisterPageState extends State<RegisterPage>
   }
 
   void _showSuccess() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Color(0xFF1A1A1A), Color(0xFFC6A15B)],
-                ),
-              ),
-              child: const Icon(Icons.check_rounded,
-                  color: Colors.white, size: 40),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Đăng ký thành công!',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tài khoản của bạn đã được tạo.\nVui lòng đăng nhập để tiếp tục.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-          ],
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFC6A15B),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                context.go('/login');
-              },
-              child: const Text('Đăng nhập ngay'),
-            ),
-          ),
-        ],
-      ),
-    );
+    AppNotifications.showInfoDialog(
+      context,
+      title: 'Đăng ký thành công!',
+      content: 'Tài khoản của bạn đã được tạo.\nVui lòng đăng nhập để tiếp tục.',
+      closeText: 'Đăng nhập ngay',
+    ).then((_) {
+      if (mounted) context.go('/login');
+    });
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: const Color(0xFFB00020),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+    AppNotifications.showErrorSnackBar(context, message);
   }
 
   // ── Build ──────────────────────────────────────────────

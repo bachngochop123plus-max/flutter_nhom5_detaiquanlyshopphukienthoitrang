@@ -16,6 +16,7 @@ class UserProfileModel {
     this.createdAt,
     this.roleId,
     this.totalAmountPurchased = 0.0,
+    this.imgUser,
   });
 
   /// UUID từ auth.users
@@ -39,11 +40,14 @@ class UserProfileModel {
   final DateTime? createdAt;
   final int? roleId;
   final double totalAmountPurchased;
+  final String? imgUser;
 
   String get membershipTier {
     if (totalAmountPurchased >= 10000000) return 'Kim Cương';
+    if (totalAmountPurchased >= 5000000) return 'Bạch Kim';
     if (totalAmountPurchased >= 2000000) return 'Vàng';
-    return 'Bạc';
+    if (totalAmountPurchased >= 1000000) return 'Bạc';
+    return 'Đồng';
   }
 
   bool get isAdmin => roleName == 'admin';
@@ -62,6 +66,7 @@ class UserProfileModel {
     DateTime? createdAt,
     int? roleId,
     double? totalAmountPurchased,
+    String? imgUser,
   }) {
     return UserProfileModel(
       id: id ?? this.id,
@@ -75,6 +80,7 @@ class UserProfileModel {
       createdAt: createdAt ?? this.createdAt,
       roleId: roleId ?? this.roleId,
       totalAmountPurchased: totalAmountPurchased ?? this.totalAmountPurchased,
+      imgUser: imgUser ?? this.imgUser,
     );
   }
 
@@ -100,6 +106,7 @@ class UserProfileModel {
           : null,
       roleId: (map['role_id'] as num?)?.toInt(),
       totalAmountPurchased: (map['total_amount_purchased'] as num?)?.toDouble() ?? 0.0,
+      imgUser: map['img_user']?.toString(),
     );
   }
 
@@ -112,5 +119,5 @@ class UserProfileModel {
 
   @override
   String toString() =>
-      'UserProfileModel(id: $id, email: $email, role: $roleName)';
+      'UserProfileModel(id: $id, email: $email, role: $roleName, imgUser: $imgUser)';
 }

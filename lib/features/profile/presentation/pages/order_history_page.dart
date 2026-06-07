@@ -48,9 +48,7 @@ class _OrderHistoryPageState extends State<OrderHistoryPage> {
       }
 
       final userIdStr = profile.id;
-      final userId = int.tryParse(userIdStr) ?? 1; // 1 is default local user
-
-      final rows = await _db.getOrdersForUser(userId);
+      final rows = await _db.getOrdersForUser(userIdStr);
       setState(() {
         _orders = rows.map(OrderModel.fromMap).toList();
         _isLoading = false;

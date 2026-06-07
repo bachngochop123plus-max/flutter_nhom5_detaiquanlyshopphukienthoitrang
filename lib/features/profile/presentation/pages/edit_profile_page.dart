@@ -3,8 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/models/user_profile_model.dart';
-import '../../../../core/widgets/base_screen.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../data/repositories/profile_repository.dart';
 
@@ -81,19 +80,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
       authCubit.updateProfileData(updatedProfile);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cập nhật hồ sơ thành công')),
-        );
+        AppNotifications.showSuccessSnackBar(context, 'Cập nhật hồ sơ thành công');
         context.pop();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        AppNotifications.showErrorSnackBar(context, 'Lỗi: $e');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);

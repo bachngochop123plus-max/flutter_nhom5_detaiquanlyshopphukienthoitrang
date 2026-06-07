@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/services/supabase_auth_repository.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 
 class LoginPage extends StatefulWidget {
@@ -90,23 +91,7 @@ class _LoginPageState extends State<LoginPage>
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: const Color(0xFFB00020),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+    AppNotifications.showErrorSnackBar(context, message);
   }
 
   // ── Build ──────────────────────────────────────────────

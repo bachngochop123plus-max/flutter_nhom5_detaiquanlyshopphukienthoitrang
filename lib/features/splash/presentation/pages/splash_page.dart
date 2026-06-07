@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/services/supabase_auth_repository.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 
 class SplashPage extends StatefulWidget {
@@ -100,11 +101,17 @@ class _SplashPageState extends State<SplashPage>
       }
 
       // Không có session → warmUp catalog rồi về home (guest)
+      if (mounted) {
+        context.read<AuthCubit>().setUnauthenticated();
+      }
       await _warmUpCatalog();
       if (mounted) context.go('/home', extra: isOffline);
     } catch (e) {
       debugPrint('[Splash] error: $e');
-      if (mounted) context.go('/home', extra: isOffline);
+      if (mounted) {
+        context.read<AuthCubit>().setUnauthenticated();
+        context.go('/home', extra: isOffline);
+      }
     }
   }
 
@@ -118,39 +125,17 @@ class _SplashPageState extends State<SplashPage>
 
   // ── 3. Dialog offline ──────────────────────────────────
   void _showOfflineDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.wifi_off_rounded, color: Color(0xFFC6A15B)),
-              SizedBox(width: 10),
-              Text('Mất kết nối mạng'),
-            ],
-          ),
-          content: const Text(
-            'Không có kết nối mạng. Bạn có muốn tiếp tục vào ứng dụng để xem dữ liệu đã tải trước không?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _showGoodbyeView();
-              },
-              child: const Text('THOÁT', style: TextStyle(color: Colors.red)),
-            ),
-            FilledButton(
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                await _restoreSessionAndNavigate(isOffline: true);
-              },
-              child: const Text('TIẾP TỤC'),
-            ),
-          ],
-        );
+    AppNotifications.showConfirmationDialog(
+      context,
+      title: 'Mất kết nối mạng',
+      content: 'Không có kết nối mạng. Bạn có muốn tiếp tục vào ứng dụng để xem dữ liệu đã tải trước không?',
+      confirmText: 'TIẾP TỤC',
+      cancelText: 'THOÁT',
+      onConfirm: () async {
+        await _restoreSessionAndNavigate(isOffline: true);
+      },
+      onCancel: () {
+        _showGoodbyeView();
       },
     );
   }

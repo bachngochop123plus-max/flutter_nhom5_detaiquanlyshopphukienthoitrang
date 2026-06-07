@@ -56,7 +56,7 @@ class OrderModel {
   });
 
   final int id;
-  final int userId;
+  final String userId;
   final DateTime orderDate;
   final double totalAmount;
   final String status;
@@ -72,7 +72,7 @@ class OrderModel {
   factory OrderModel.fromMap(Map<String, Object?> map) {
     return OrderModel(
       id: map['id'] as int,
-      userId: map['user_id'] as int,
+      userId: map['user_id']?.toString() ?? '',
       orderDate: DateTime.parse(map['order_date'] as String),
       totalAmount: (map['total_amount'] as num).toDouble(),
       status: map['status'] as String? ?? 'pending',

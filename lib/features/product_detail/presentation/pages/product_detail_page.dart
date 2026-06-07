@@ -9,6 +9,7 @@ import 'package:shimmer/shimmer.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../../../cart/presentation/cubit/cart_cubit.dart';
 import '../../../../core/utils/auth_guard.dart';
@@ -356,13 +357,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         _quantity = maxQty;
         _quantityController.text = maxQty.toString();
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Chỉ còn $maxQty sản phẩm trong kho!'),
-          backgroundColor: AppColors.danger,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
+      AppNotifications.showErrorSnackBar(
+        context,
+        'Chỉ còn $maxQty sản phẩm trong kho!',
       );
     } else {
       setState(() {
@@ -393,17 +390,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       );
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          navigateToCart
-              ? 'Đã thêm $qty sản phẩm! Đang chuyển đến giỏ hàng...'
-              : 'Đã thêm $qty sản phẩm vào giỏ hàng!',
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 2),
-      ),
+    AppNotifications.showSuccessSnackBar(
+      context,
+      navigateToCart
+          ? 'Đã thêm $qty sản phẩm! Đang chuyển đến giỏ hàng...'
+          : 'Đã thêm $qty sản phẩm vào giỏ hàng!',
     );
 
     if (navigateToCart) {
@@ -652,16 +643,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                       await _checkFavoriteStatus();
 
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              _isFavorite
-                                  ? 'Đã thêm vào yêu thích'
-                                  : 'Đã xóa khỏi yêu thích',
-                            ),
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: AppColors.luxuryGold,
-                          ),
+                        AppNotifications.showSuccessSnackBar(
+                          context,
+                          _isFavorite
+                              ? 'Đã thêm vào yêu thích'
+                              : 'Đã xóa khỏi yêu thích',
                         );
                       }
                     },
@@ -1499,13 +1485,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                       _quantity = maxQty;
                       _quantityController.text = maxQty.toString();
                     });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Chỉ còn $maxQty sản phẩm trong kho!'),
-                        backgroundColor: AppColors.danger,
-                        behavior: SnackBarBehavior.floating,
-                        duration: const Duration(seconds: 2),
-                      ),
+                    AppNotifications.showErrorSnackBar(
+                      context,
+                      'Chỉ còn $maxQty sản phẩm trong kho!',
                     );
                   } else if (parsed >= 1) {
                     setState(() {
@@ -1527,13 +1509,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     _quantityController.text = _quantity.toString();
                   });
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Chỉ còn $maxQty sản phẩm trong kho!'),
-                      backgroundColor: AppColors.danger,
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                    ),
+                  AppNotifications.showErrorSnackBar(
+                    context,
+                    'Chỉ còn $maxQty sản phẩm trong kho!',
                   );
                 }
               },

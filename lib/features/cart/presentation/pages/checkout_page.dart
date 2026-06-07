@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/data/database_helper.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../cubit/cart_cubit.dart';
+import '../../../../core/models/product.dart';
 
 class CheckoutPage extends StatefulWidget {
   const CheckoutPage({super.key});
@@ -19,6 +23,7 @@ class CheckoutPage extends StatefulWidget {
 class _CheckoutPageState extends State<CheckoutPage> {
   final _addressController = TextEditingController();
   final _db = GetIt.instance<DatabaseHelper>();
+  final _catalogRepository = GetIt.instance<CatalogRepository>();
 
   String _paymentMethod = 'COD';
   bool _isPlacingOrder = false;
@@ -41,9 +46,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   Future<void> _placeOrder() async {
     final address = _addressController.text.trim();
     if (address.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập địa chỉ giao hàng')),
-      );
+      AppNotifications.showErrorSnackBar(context, 'Vui lòng nhập địa chỉ giao hàng');
       return;
     }
 
@@ -51,15 +54,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
     final selectedItems = cartState.selectedItems;
     if (selectedItems.isEmpty) return;
 
-    setState(() {
-      _isPlacingOrder = true;
-    });
+    setState(() => _isPlacingOrder = true);
 
     try {
       final profile = context.read<AuthCubit>().state.profile;
       final userIdStr = profile?.id ?? '1';
       final userId = int.tryParse(userIdStr) ?? 1;
 
+      // ── Bước 1: Resolve variant IDs ─────────────────────────────────────
       List<({int variantId, int quantity, double price})> orderItems = [];
 
       for (final item in selectedItems) {
@@ -76,37 +78,73 @@ class _CheckoutPageState extends State<CheckoutPage> {
         ));
       }
 
+      // ── Bước 2: Kiểm tra tồn kho trước khi đặt ──────────────────────────
+      final stockCheck = orderItems
+          .map((e) => (variantId: e.variantId, quantity: e.quantity))
+          .toList();
+      final outOfStockIds = await _db.checkStockAvailability(stockCheck);
+
+      if (outOfStockIds.isNotEmpty && mounted) {
+        // Tìm tên sản phẩm tương ứng với variant hết hàng
+        final outOfStockNames = <String>[];
+        for (var i = 0; i < orderItems.length; i++) {
+          if (outOfStockIds.contains(orderItems[i].variantId)) {
+            outOfStockNames.add(selectedItems[i].product.name);
+          }
+        }
+
+        setState(() => _isPlacingOrder = false);
+        _showOutOfStockDialog(outOfStockNames);
+        return;
+      }
+
+      // ── Bước 3: Đặt hàng ────────────────────────────────────────────────
       final orderId = await _db.placeOrder(
         userId: userId,
         shippingAddress: address,
         paymentMethod: _paymentMethod,
         items: orderItems,
+        supabaseUserId: profile?.id,
       );
 
       if (!mounted) return;
 
       final totalAmount = cartState.selectedTotal;
-
-      // Xoá các sản phẩm đã mua khỏi giỏ hàng
       context.read<CartCubit>().removeSelectedItems();
+
+      // Cập nhập lại stock trong bộ nhớ sau khi đặt hàng thành công
+      unawaited(_catalogRepository.refreshProducts().catchError((_) => <Product>[]));
 
       if (_paymentMethod == 'COD') {
         context.go('/e-invoice?orderId=$orderId&method=$_paymentMethod&total=$totalAmount');
       } else {
         context.go('/payment-qr?orderId=$orderId&total=$totalAmount');
       }
+    } on InsufficientStockException catch (e) {
+      // Lỗi hết hàng được phát hiện tại DB layer (race condition)
+      if (!mounted) return;
+      AppNotifications.showErrorSnackBar(context, e.toString());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi đặt hàng: $e')),
+      debugPrint('[checkout_page] Error placing order: $e');
+      AppNotifications.showErrorSnackBar(
+        context,
+        'Đặt hàng thất bại: $e. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.',
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isPlacingOrder = false;
-        });
-      }
+      if (mounted) setState(() => _isPlacingOrder = false);
     }
+  }
+
+  void _showOutOfStockDialog(List<String> productNames) {
+    AppNotifications.showInfoDialog(
+      context,
+      title: 'Sản phẩm hết hàng',
+      content: 'Các sản phẩm sau không đủ tồn kho để đặt hàng:\n'
+          '${productNames.map((name) => '• $name').join('\n')}\n\n'
+          'Vui lòng bỏ chọn hoặc giảm số lượng các sản phẩm trên rồi thử lại.',
+      closeText: 'Đã hiểu',
+    );
   }
 
   @override

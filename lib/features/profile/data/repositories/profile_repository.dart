@@ -53,4 +53,34 @@ class ProfileRepository {
       throw Exception('Lỗi cập nhật thông tin: $e');
     }
   }
+
+  /// Cập nhật ảnh đại diện người dùng
+  Future<void> updateAvatar({
+    required String userId,
+    required String? imgUrl,
+  }) async {
+    try {
+      final localId = int.tryParse(userId);
+      final isLocalUser = localId != null;
+
+      if (!isLocalUser && _usesSupabase) {
+        await _client.from('profiles').update({
+          'img_user': imgUrl,
+        }).eq('id', userId);
+      } else if (isLocalUser) {
+        final db = await _databaseHelper.database;
+        await db.update(
+          'users',
+          {
+            'img_user': imgUrl,
+          },
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+      }
+    } catch (e) {
+      debugPrint('[ProfileRepository] updateAvatar error: $e');
+      throw Exception('Lỗi cập nhật ảnh đại diện: $e');
+    }
+  }
 }

@@ -162,6 +162,24 @@ class SupabaseAuthRepository {
         final map = Map<String, dynamic>.from(rows.first as Map);
         // View không có cột email → bổ sung từ auth
         map['email'] = email;
+
+        // Nếu view chưa có img_user (do chưa cập nhật định nghĩa view trong Supabase)
+        // thì truy vấn trực tiếp từ bảng profiles làm dự phòng
+        if (!map.containsKey('img_user') || map['img_user'] == null) {
+          try {
+            final profileRow = await _client
+                .from('profiles')
+                .select('img_user')
+                .eq('id', userId)
+                .maybeSingle();
+            if (profileRow != null && profileRow['img_user'] != null) {
+              map['img_user'] = profileRow['img_user'];
+            }
+          } catch (e) {
+            debugPrint('[Auth] Fallback profiles query failed: $e');
+          }
+        }
+
         return UserProfileModel.fromMap(map);
       }
     } catch (e) {
@@ -179,7 +197,7 @@ class SupabaseAuthRepository {
     try {
       final rows = await _client
           .from('profiles')
-          .select('full_name, phone, address, created_at, role_id')
+          .select('full_name, phone, address, created_at, role_id, img_user')
           .eq('id', userId)
           .limit(1);
 
@@ -190,6 +208,7 @@ class SupabaseAuthRepository {
       String? address;
       DateTime? createdAt;
       int? roleId;
+      String? imgUser;
 
       if (rows.isNotEmpty) {
         final p = Map<String, dynamic>.from(rows.first as Map);
@@ -200,6 +219,7 @@ class SupabaseAuthRepository {
             ? DateTime.tryParse(p['created_at'].toString())
             : null;
         roleId = (p['role_id'] as num?)?.toInt();
+        imgUser = p['img_user']?.toString();
 
         // Lấy role name từ roles table
         if (roleId != null) {
@@ -231,6 +251,7 @@ class SupabaseAuthRepository {
         address: address,
         createdAt: createdAt,
         roleId: roleId,
+        imgUser: imgUser,
       );
     } catch (e) {
       debugPrint('[Auth] fetchProfileFallback error: $e');
@@ -282,6 +303,7 @@ class SupabaseAuthRepository {
           ? ['manage_products', 'manage_orders', 'manage_users',
              'manage_categories', 'view_reports']
           : ['place_orders', 'write_reviews'],
+      imgUser: localUser['img_user']?.toString(),
     );
   }
 

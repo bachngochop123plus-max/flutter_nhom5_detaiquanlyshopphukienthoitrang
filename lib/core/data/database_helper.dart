@@ -1,17 +1,35 @@
 import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
-
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/supabase_config.dart';
 import '../models/product.dart';
+
+class InsufficientStockException implements Exception {
+  const InsufficientStockException({
+    required this.variantId,
+    required this.available,
+    required this.requested,
+  });
+
+  final int variantId;
+  final int available;
+  final int requested;
+
+  @override
+  String toString() =>
+      'Sản phẩm (variant #$variantId) chỉ còn $available trong kho, '
+      'nhưng bạn đặt $requested.';
+}
 
 class DatabaseHelper {
   DatabaseHelper._();
 
   static final DatabaseHelper instance = DatabaseHelper._();
   static const _databaseName = 'fashion_shop.db';
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 9;
   static const _legacyDefaultUserId = 1;
 
   // ── Core domain tables ──────────────────────────────────────────────────────
@@ -26,6 +44,7 @@ class DatabaseHelper {
   static const ordersTable = 'orders';
   static const orderItemsTable = 'order_items';
   static const reviewsTable = 'reviews';
+  static const cartItemsTable = 'cart_items';
 
   // ── Legacy tables (kept for migration only) ──────────────────────────────
   static const _legacyCatalogTable = 'catalog_products';
@@ -76,9 +95,22 @@ class DatabaseHelper {
         if (oldVersion < 6) {
           await _migrateToV6(db);
         }
-        // v6→v7: seed full demo data (categories + products + product_images per product)
+        // v6→v7: seed full demo data and add cart_items table
         if (oldVersion < 7) {
           await _seedDemoData(db);
+          await _migrateToV7(db);
+        }
+        // v7→v8: rebuild cart_items with user_id for per-account partitioning
+        if (oldVersion < 8) {
+          await _migrateToV8(db);
+        }
+        // v8→v9: add img_user TEXT column to users table
+        if (oldVersion < 9) {
+          try {
+            await db.execute('ALTER TABLE users ADD COLUMN img_user TEXT');
+          } catch (e) {
+            debugPrint('[DatabaseHelper] Migration to v9 error (img_user might already exist): $e');
+          }
         }
       },
     );
@@ -107,6 +139,7 @@ class DatabaseHelper {
         phone         TEXT,
         address       TEXT,
         bank_info     TEXT,
+        img_user      TEXT,
         created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (role_id) REFERENCES $rolesTable(id)
           ON DELETE RESTRICT ON UPDATE CASCADE
@@ -291,6 +324,18 @@ class DatabaseHelper {
         c.name AS category_name
       FROM products p
       JOIN categories c ON c.id = p.category_id
+    ''');
+
+    // cart_items ────────────────────────────────────────────────────────────
+    await db.execute('''
+        CREATE TABLE IF NOT EXISTS $cartItemsTable (
+        id         TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        quantity   INTEGER NOT NULL,
+        color      TEXT,
+        size       TEXT,
+        user_id    TEXT NOT NULL DEFAULT 'guest'
+      )
     ''');
   }
 
@@ -690,6 +735,34 @@ class DatabaseHelper {
     ''');
   }
 
+  Future<void> _migrateToV7(Database db) async {
+    // Original migration: create cart_items without user_id
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cart_items (
+        id         TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        quantity   INTEGER NOT NULL,
+        color      TEXT,
+        size       TEXT
+      )
+    ''');
+  }
+
+  Future<void> _migrateToV8(Database db) async {
+    // Rebuild cart_items with user_id column for per-account partitioning
+    await db.execute('DROP TABLE IF EXISTS cart_items');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cart_items (
+        id         TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        quantity   INTEGER NOT NULL,
+        color      TEXT,
+        size       TEXT,
+        user_id    TEXT NOT NULL DEFAULT 'guest'
+      )
+    ''');
+  }
+
   // ── Helper ───────────────────────────────────────────────────────────────
 
   Future<bool> _tableExists(Database db, String tableName) async {
@@ -900,8 +973,10 @@ class DatabaseHelper {
       });
     }
 
-    if (product.variants != null && product.variants!.isNotEmpty) {
-      for (final variant in product.variants!) {
+    // Ưu tiên dùng variants data nếu có (khi đồng bộ từ Supabase/remote),
+    // fallback về availableColors × availableSizes khi tạo từ local legacy data.
+    if (product.variants.isNotEmpty) {
+      for (final variant in product.variants) {
         await tx.insert(productVariantsTable, {
           'product_id': productId,
           'color': variant['color'],
@@ -1413,12 +1488,28 @@ class DatabaseHelper {
 
   // ── Orders ───────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, Object?>>> getOrdersForUser(int userId) async {
+  Future<List<Map<String, Object?>>> getOrdersForUser(String userId) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        final rows = await client
+            .from('orders')
+            .select()
+            .eq('user_id', userId)
+            .order('order_date', ascending: false)
+            as List<dynamic>;
+        return rows.map((e) => Map<String, Object?>.from(e as Map)).toList();
+      } catch (e) {
+        debugPrint('[getOrdersForUser] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
+    final localUserId = int.tryParse(userId) ?? 1;
     final db = await database;
     return db.query(
       ordersTable,
       where: 'user_id = ?',
-      whereArgs: [userId],
+      whereArgs: [localUserId],
       orderBy: 'order_date DESC',
     );
   }
@@ -1431,6 +1522,32 @@ class DatabaseHelper {
     DateTime? from,
     DateTime? to,
   }) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        var query = client.from('orders').select('*, profiles(full_name, email)');
+        if (from != null) {
+          query = query.gte('order_date', from.toIso8601String());
+        }
+        if (to != null) {
+          query = query.lte('order_date', to.toIso8601String());
+        }
+        final rows = await query.order('order_date', ascending: false) as List<dynamic>;
+
+        return rows.map((row) {
+          final map = Map<String, Object?>.from(row as Map);
+          final profile = map['profiles'] != null ? Map<String, dynamic>.from(map['profiles'] as Map) : null;
+          return {
+            ...map,
+            'customer_name': profile?['full_name'] ?? 'Khách hàng',
+            'customer_email': profile?['email'] ?? '',
+          };
+        }).toList();
+      } catch (e) {
+        debugPrint('[getAdminOrders] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
     final db = await database;
 
     final conditions = <String>[];
@@ -1469,6 +1586,105 @@ class DatabaseHelper {
 
   /// Full order detail including items, product name, color, size, thumbnail.
   Future<Map<String, Object?>?> getOrderWithItems(int orderId) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        
+        // 1. Fetch Order without joining profiles to avoid relationship schema errors
+        final orderRow = await client
+            .from('orders')
+            .select()
+            .eq('id', orderId)
+            .maybeSingle();
+            
+        if (orderRow == null) return null;
+
+        final orderMap = Map<String, Object?>.from(orderRow as Map);
+        
+        // 2. Safely fetch profile if needed
+        Map<String, dynamic>? profile;
+        try {
+          if (orderMap['user_id'] != null) {
+            final profileRow = await client
+                .from('profiles')
+                .select()
+                .eq('id', orderMap['user_id']!)
+                .maybeSingle();
+            if (profileRow != null) {
+              profile = Map<String, dynamic>.from(profileRow as Map);
+            }
+          }
+        } catch (_) {
+          // Ignore profile fetch error
+        }
+
+        List<dynamic> itemRows = [];
+        try {
+          itemRows = await client
+              .from('order_items')
+              .select('*, product_variants(*, products(*))')
+              .eq('order_id', orderId)
+              as List<dynamic>;
+        } catch (_) {
+          // If deep join fails, fetch just items
+          itemRows = await client
+              .from('order_items')
+              .select()
+              .eq('order_id', orderId)
+              as List<dynamic>;
+        }
+
+        final mappedItems = [];
+        for (final rawItem in itemRows) {
+          final item = Map<String, dynamic>.from(rawItem as Map);
+          Map<String, dynamic>? variant;
+          Map<String, dynamic>? product;
+
+          if (item['product_variants'] != null) {
+            variant = Map<String, dynamic>.from(item['product_variants'] as Map);
+            if (variant['products'] != null) {
+              product = Map<String, dynamic>.from(variant['products'] as Map);
+            }
+          } else {
+            // Fallback: fetch variant and product manually if deep join failed
+            try {
+              final vRow = await client.from('product_variants').select().eq('id', item['variant_id']!).maybeSingle();
+              if (vRow != null) {
+                variant = Map<String, dynamic>.from(vRow as Map);
+                final pRow = await client.from('products').select().eq('id', variant['product_id']!).maybeSingle();
+                if (pRow != null) {
+                  product = Map<String, dynamic>.from(pRow as Map);
+                }
+              }
+            } catch (_) {}
+          }
+
+          mappedItems.add({
+            'id': item['id'],
+            'order_id': item['order_id'],
+            'variant_id': item['variant_id'],
+            'quantity': item['quantity'],
+            'price_at_purchase': item['price_at_purchase'],
+            'color': variant?['color'],
+            'size': variant?['size'],
+            'product_name': product?['name'],
+            'thumbnail': product?['thumbnail'],
+          });
+        }
+
+        return {
+          ...orderMap,
+          'customer_name': profile?['full_name'],
+          'customer_email': profile?['email'],
+          'customer_phone': profile?['phone'],
+          'customer_address': profile?['address'],
+          'order_items': mappedItems,
+        };
+      } catch (e) {
+        debugPrint('[getOrderWithItems] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
     final db = await database;
 
     final orderRows = await db.rawQuery(
@@ -1511,9 +1727,50 @@ class DatabaseHelper {
   /// Lấy Variant ID dựa trên Product ID, Color và Size. 
   /// Trả về ID của variant tìm thấy hoặc variant đầu tiên của sản phẩm nếu không match.
   Future<int> getVariantId(String productId, String? color, String? size) async {
-    final db = await database;
     final pId = int.tryParse(productId);
+    debugPrint('[getVariantId] INPUT → productId=$productId, color=$color, size=$size, parsedPId=$pId');
     if (pId == null) return 0;
+
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        
+        // Query exact match trên Supabase
+        var query = client.from('product_variants').select('id').eq('product_id', pId);
+        if (color != null && color.isNotEmpty) {
+          query = query.eq('color', color);
+        }
+        if (size != null && size.isNotEmpty) {
+          query = query.eq('size', size);
+        }
+        
+        final exactRows = await query.limit(1).maybeSingle();
+        if (exactRows != null) {
+          final id = (exactRows['id'] as num).toInt();
+          debugPrint('[getVariantId] ✅ Supabase exact match → variantId=$id');
+          return id;
+        }
+
+        // Fallback: Lấy variant đầu tiên của product trên Supabase
+        final fallbackRows = await client
+            .from('product_variants')
+            .select('id')
+            .eq('product_id', pId)
+            .limit(1)
+            .maybeSingle();
+        if (fallbackRows != null) {
+          final id = (fallbackRows['id'] as num).toInt();
+          debugPrint('[getVariantId] ⚠️ Supabase fallback (first variant) → variantId=$id');
+          return id;
+        }
+        debugPrint('[getVariantId] ❌ Supabase: không tìm thấy variant nào cho productId=$pId');
+      } catch (e) {
+        debugPrint('[getVariantId] ❌ Supabase error: $e → Falling back to SQLite.');
+      }
+    }
+
+    // SQLite local fallback
+    final db = await database;
     
     String whereStr = 'product_id = ?';
     List<Object?> whereArgsList = [pId];
@@ -1536,10 +1793,12 @@ class DatabaseHelper {
     );
     
     if (exactMatches.isNotEmpty) {
-      return exactMatches.first['id'] as int;
+      final id = exactMatches.first['id'] as int;
+      debugPrint('[getVariantId] ⚠️ SQLite exact match → variantId=$id (có thể không khớp Supabase!)');
+      return id;
     }
     
-    // Fallback: Lấy variant đầu tiên của product
+    // Fallback: Lấy variant đầu tiên của product trong SQLite
     final anyMatches = await db.query(
       productVariantsTable, 
       columns: ['id'], 
@@ -1549,21 +1808,206 @@ class DatabaseHelper {
     );
     
     if (anyMatches.isNotEmpty) {
-      return anyMatches.first['id'] as int;
+      final id = anyMatches.first['id'] as int;
+      debugPrint('[getVariantId] ⚠️ SQLite fallback (first variant) → variantId=$id (có thể không khớp Supabase!)');
+      return id;
     }
-    return 0; // Fallback an toàn (có thể gây lỗi foreign key nếu = 0)
+    debugPrint('[getVariantId] ❌ Không tìm thấy variant nào → trả về 0');
+    return 0;
+  }
+
+  /// Kiểm tra tồn kho trước khi đặt hàng.
+  /// Trả về danh sách [variantId] bị thiếu hàng. Nếu rỗng → đủ hàng.
+  Future<List<int>> checkStockAvailability(
+    List<({int variantId, int quantity})> items,
+  ) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        final outOfStock = <int>[];
+        for (final item in items) {
+          final row = await client
+              .from('product_variants')
+              .select('stock')
+              .eq('id', item.variantId)
+              .maybeSingle();
+          if (row == null) {
+            // Variant không tìm thấy trên Supabase (có thể là ID local khác ID Supabase)
+            // → bỏ qua, không báo hết hàng để tránh false positive
+            debugPrint('[checkStockAvailability] Variant ${item.variantId} không tìm thấy trên Supabase, bỏ qua kiểm tra.');
+            continue;
+          }
+          final stock = (row['stock'] as num?)?.toInt() ?? 0;
+          if (stock < item.quantity) {
+            outOfStock.add(item.variantId);
+          }
+        }
+        return outOfStock;
+      } catch (e) {
+        debugPrint('[checkStockAvailability] Supabase error: $e. Bỏ qua kiểm tra tồn kho.');
+        // Nếu Supabase lỗi, bỏ qua hoàn toàn kiểm tra → không block đặt hàng
+        return [];
+      }
+    }
+
+    // Offline: kiểm tra SQLite local
+    final db = await database;
+    final outOfStock = <int>[];
+    for (final item in items) {
+      final row = await db.query(
+        productVariantsTable,
+        columns: ['stock'],
+        where: 'id = ?',
+        whereArgs: [item.variantId],
+        limit: 1,
+      );
+      if (row.isEmpty) {
+        outOfStock.add(item.variantId);
+        continue;
+      }
+      final stock = row.first['stock'] as int? ?? 0;
+      if (stock < item.quantity) {
+        outOfStock.add(item.variantId);
+      }
+    }
+    return outOfStock;
   }
 
   /// Places an order and decrements stock atomically.
+  /// Throws [InsufficientStockException] nếu bất kỳ variant nào hết hàng.
   Future<int> placeOrder({
     required int userId,
     required String shippingAddress,
     required String paymentMethod,
     required List<({int variantId, int quantity, double price})> items,
+    String? supabaseUserId,
   }) async {
+    // Nếu sử dụng Supabase và có supabaseUserId
+    if (SupabaseConfig.instance.isConfigured && supabaseUserId != null) {
+      final client = Supabase.instance.client;
+
+      // Bỏ kiểm tra stock ở đây — đã được checkStockAvailability() kiểm tra
+      // trước đó trong checkout_page.dart. Không kiểm tra lại để tránh
+      // bất nhất khi variantId là ID local SQLite thay vì ID Supabase.
+
+      final total = items.fold<double>(
+        0,
+        (sum, i) => sum + i.price * i.quantity,
+      );
+      final paymentStatus = paymentMethod == 'COD' ? 'unpaid' : 'paid';
+
+      // Log để debug variantId đang được dùng
+      for (final item in items) {
+        debugPrint('[placeOrder] Placing order with variantId=${item.variantId}, qty=${item.quantity}');
+      }
+
+      // 1. Insert đơn hàng vào bảng 'orders' trên Supabase
+      final orderInsert = await client.from('orders').insert({
+        'user_id': supabaseUserId,
+        'total_amount': total,
+        'shipping_address': shippingAddress,
+        'payment_method': paymentMethod,
+        'payment_status': paymentStatus,
+        'status': 'pending',
+      }).select('id').single();
+
+      final supabaseOrderId = (orderInsert['id'] as num).toInt();
+
+      // 2. Insert chi tiết đơn hàng (order_items)
+      for (final item in items) {
+        // Lấy tồn kho trước khi insert để đối chiếu với tồn kho sau khi insert
+        int stockBefore = 0;
+        try {
+          final variantRow = await client
+              .from('product_variants')
+              .select('stock')
+              .eq('id', item.variantId)
+              .maybeSingle();
+          if (variantRow != null) {
+            stockBefore = (variantRow['stock'] as num).toInt();
+          }
+        } catch (e) {
+          debugPrint('[placeOrder] Không thể đọc stock trước cho variant ${item.variantId}: $e');
+        }
+
+        await client.from('order_items').insert({
+          'order_id': supabaseOrderId,
+          'variant_id': item.variantId,
+          'quantity': item.quantity,
+          'price_at_purchase': item.price,
+        });
+
+        // Giảm tồn kho trên Supabase (chỉ giảm thủ công nếu không có DB trigger tự động giảm)
+        try {
+          final variantRow = await client
+              .from('product_variants')
+              .select('stock')
+              .eq('id', item.variantId)
+              .maybeSingle();
+          if (variantRow != null) {
+            final stockAfter = (variantRow['stock'] as num).toInt();
+
+            // Nếu stockAfter < stockBefore, điều đó chứng tỏ database đã có trigger 
+            // tự động trừ tồn kho (ví dụ: trigger ON INSERT order_items).
+            // Chúng ta KHÔNG được trừ thêm lần nữa để tránh lỗi trừ gấp đôi (double decrement).
+            if (stockAfter == stockBefore) {
+              final newStock = (stockAfter - item.quantity).clamp(0, stockAfter);
+              await client
+                  .from('product_variants')
+                  .update({'stock': newStock})
+                  .eq('id', item.variantId);
+              debugPrint('[placeOrder] Đã trừ tồn kho thủ công từ Flutter: $stockAfter -> $newStock');
+            } else {
+              debugPrint('[placeOrder] Phát hiện DB Trigger đã tự động trừ tồn kho: $stockBefore -> $stockAfter. Bỏ qua trừ thủ công.');
+            }
+          }
+        } catch (e) {
+          debugPrint('[placeOrder] Không thể cập nhật/kiểm tra tồn kho Supabase cho variant ${item.variantId}: $e');
+          // Tiếp tục xử lý — không block đặt hàng do lỗi update stock
+        }
+      }
+
+      // 4. Đồng bộ đơn hàng xuống SQLite local (chỉ lưu đơn + chi tiết để xem offline)
+      // Không trừ tồn kho SQLite vì Supabase là nguồn sự thật duy nhất cho stock.
+      try {
+        final db = await database;
+        await db.transaction((tx) async {
+          await tx.insert(ordersTable, {
+            'id': supabaseOrderId,
+            'user_id': userId,
+            'total_amount': total,
+            'shipping_address': shippingAddress,
+            'payment_method': paymentMethod,
+            'payment_status': paymentStatus,
+            'status': 'pending',
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+          for (final item in items) {
+            await tx.insert(orderItemsTable, {
+              'order_id': supabaseOrderId,
+              'variant_id': item.variantId,
+              'quantity': item.quantity,
+              'price_at_purchase': item.price,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            // Tồn kho đã được trừ trên Supabase — bỏ qua UPDATE SQLite để tránh lỗi CHECK constraint.
+          }
+        });
+      } catch (e) {
+        debugPrint('[placeOrder] Ghi cache SQLite thất bại: $e');
+      }
+
+      return supabaseOrderId;
+    }
+
+    // Nếu Supabase đã được cấu hình nhưng không có supabaseUserId → người dùng chưa đăng nhập
+    if (SupabaseConfig.instance.isConfigured) {
+      throw Exception('Bạn cần đăng nhập để đặt hàng.');
+    }
+
+    // Luồng SQLite Local thuần (chỉ dùng khi hoàn toàn offline, không cấu hình Supabase)
     final db = await database;
     return db.transaction((tx) async {
-      // Validate stock first
+      // Kiểm tra tồn kho — ném exception rõ ràng nếu không đủ hàng
       for (final item in items) {
         final row = await tx.query(
           productVariantsTable,
@@ -1572,12 +2016,20 @@ class DatabaseHelper {
           whereArgs: [item.variantId],
           limit: 1,
         );
-        if (row.isEmpty) throw Exception('Variant ${item.variantId} not found');
-        final stock = row.first['stock'] as int;
+        if (row.isEmpty) {
+          throw InsufficientStockException(
+            variantId: item.variantId,
+            available: 0,
+            requested: item.quantity,
+          );
+        }
+        final stock = row.first['stock'] as int? ?? 0;
         if (stock < item.quantity) {
-          // NOTE: Bỏ qua lỗi insufficient stock để demo luồng mua hàng trơn tru 
-          // vì dữ liệu mẫu đang có stock = 0
-          debugPrint('Bỏ qua lỗi tồn kho cho variant ${item.variantId}');
+          throw InsufficientStockException(
+            variantId: item.variantId,
+            available: stock,
+            requested: item.quantity,
+          );
         }
       }
 
@@ -1586,7 +2038,6 @@ class DatabaseHelper {
         (sum, i) => sum + i.price * i.quantity,
       );
 
-      // Nếu paymentMethod không phải COD thì coi như đã thanh toán (để test logic)
       final paymentStatus = paymentMethod == 'COD' ? 'unpaid' : 'paid';
 
       final orderId = await tx.insert(ordersTable, {
@@ -1619,6 +2070,51 @@ class DatabaseHelper {
   }
 
   Future<void> updateOrderStatus(int orderId, String status) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+
+        // Nếu chuyển sang trạng thái huỷ (cancelled), cần cộng lại tồn kho trên Supabase
+        if (status == 'cancelled') {
+          final orderRow = await client
+              .from('orders')
+              .select('status')
+              .eq('id', orderId)
+              .maybeSingle();
+          final oldStatus = orderRow != null ? orderRow['status'] as String? : null;
+
+          if (oldStatus != 'cancelled') {
+            final items = await client
+                .from('order_items')
+                .select('variant_id, quantity')
+                .eq('order_id', orderId)
+                as List<dynamic>;
+
+            for (final rawItem in items) {
+              final item = Map<String, dynamic>.from(rawItem as Map);
+              final variantId = item['variant_id'] as int;
+              final qty = item['quantity'] as int;
+
+              final variantRow = await client
+                  .from('product_variants')
+                  .select('stock')
+                  .eq('id', variantId)
+                  .single();
+              final currentStock = (variantRow['stock'] as num).toInt();
+              await client
+                  .from('product_variants')
+                  .update({'stock': currentStock + qty})
+                  .eq('id', variantId);
+            }
+          }
+        }
+
+        await client.from('orders').update({'status': status}).eq('id', orderId);
+      } catch (e) {
+        debugPrint('[updateOrderStatus] Supabase error: $e');
+      }
+    }
+
     final db = await database;
     await db.transaction((tx) async {
       final orderRows = await tx.query(
@@ -1639,7 +2135,7 @@ class DatabaseHelper {
         whereArgs: [orderId],
       );
 
-      // Keep stock consistent when an order transitions to cancelled.
+      // Trả lại tồn kho SQLite local khi đơn bị huỷ
       if (status == 'cancelled' && oldStatus != 'cancelled') {
         final items = await tx.query(
           orderItemsTable,
@@ -1662,6 +2158,15 @@ class DatabaseHelper {
   }
 
   Future<void> updatePaymentStatus(int orderId, String paymentStatus) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        await client.from('orders').update({'payment_status': paymentStatus}).eq('id', orderId);
+      } catch (e) {
+        debugPrint('[updatePaymentStatus] Supabase error: $e');
+      }
+    }
+
     final db = await database;
     await db.update(
       ordersTable,
@@ -1920,5 +2425,98 @@ class DatabaseHelper {
     return 0.0;
   }
 
-  Future<Object?> getOrderItems(int orderId) async {}
+  /// Tính tổng số tiền đã mua của user từ các đơn hàng có trạng thái 'delivered' (đã giao)
+  Future<double> getUserTotalSpent(String userId) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        final rows = await client
+            .from('orders')
+            .select('total_amount')
+            .eq('user_id', userId)
+            .eq('status', 'delivered') as List<dynamic>;
+
+        double total = 0.0;
+        for (var row in rows) {
+          final amt = row['total_amount'];
+          if (amt != null) {
+            total += (amt as num).toDouble();
+          }
+        }
+        return total;
+      } catch (e) {
+        debugPrint('[getUserTotalSpent] Supabase error: \$e. Falling back to SQLite.');
+      }
+    }
+
+    final localUserId = int.tryParse(userId) ?? 1;
+    final db = await database;
+    final result = await db.rawQuery(
+      '''
+      SELECT SUM(total_amount) as total
+      FROM $ordersTable
+      WHERE user_id = ? AND status = 'delivered'
+      ''',
+      [localUserId],
+    );
+    if (result.isNotEmpty && result.first['total'] != null) {
+      return (result.first['total'] as num).toDouble();
+    }
+    return 0.0;
+  }
+
+
+  Future<Object?> getOrderItems(int orderId) async {
+    return null;
+  }
+
+  Future<List<Map<String, Object?>>> getLocalCartItems(String userId) async {
+    final db = await database;
+    return db.query(
+      cartItemsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+  }
+
+  Future<void> saveLocalCartItem({
+    required String id,
+    required String productId,
+    required int quantity,
+    required String userId,
+    String? color,
+    String? size,
+  }) async {
+    final db = await database;
+    await db.insert(
+      cartItemsTable,
+      {
+        'id': id,
+        'product_id': productId,
+        'quantity': quantity,
+        'color': color,
+        'size': size,
+        'user_id': userId,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteLocalCartItem(String id, String userId) async {
+    final db = await database;
+    await db.delete(
+      cartItemsTable,
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
+    );
+  }
+
+  Future<void> clearLocalCart(String userId) async {
+    final db = await database;
+    await db.delete(
+      cartItemsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+  }
 }

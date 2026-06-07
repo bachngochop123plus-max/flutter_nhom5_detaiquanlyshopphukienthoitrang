@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/models/user_profile_model.dart';
 
+import '../../../../core/services/supabase_auth_repository.dart';
+
 // ─────────────────────────────────────────────────────────
 //  Backward-compat enum (dùng trong router guard)
 // ─────────────────────────────────────────────────────────
@@ -86,7 +88,9 @@ class AuthState extends Equatable {
 //  AuthCubit
 // ─────────────────────────────────────────────────────────
 class AuthCubit extends Cubit<AuthState> {
-  AuthCubit() : super(const AuthState());
+  AuthCubit(this._authRepository) : super(const AuthState());
+
+  final SupabaseAuthRepository _authRepository;
 
   // ── Gọi từ SupabaseAuthRepository sau khi đăng nhập / restore session ──
   void loginSuccess(UserProfileModel profile) {
@@ -117,6 +121,7 @@ class AuthCubit extends Cubit<AuthState> {
   // ── Đăng xuất ──
   void logout() {
     emit(const AuthState(status: AuthStatus.unauthenticated));
+    _authRepository.signOut().catchError((_) {});
   }
 
   // ── Không có session (mở app lần đầu / hết hạn) ──

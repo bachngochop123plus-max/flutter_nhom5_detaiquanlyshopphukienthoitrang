@@ -92,7 +92,7 @@ class EInvoicePage extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () {
-                    context.go('/'); // Quay về trang chủ
+                    context.go('/home'); // Quay về trang chủ
                   },
                   icon: const Icon(Icons.home_outlined),
                   label: const Text('Về trang chủ'),
