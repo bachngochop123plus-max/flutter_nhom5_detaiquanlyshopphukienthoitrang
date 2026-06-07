@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/config/supabase_config.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/models/order_model.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 
 class AdminOrderDetailPage extends StatefulWidget {
@@ -127,7 +128,7 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
 
     final order = OrderModel(
       id: safeInt(raw['id']),
-      userId: userId,
+      userId: userId.toString(),
       orderDate: DateTime.tryParse(raw['order_date']?.toString() ?? '') ?? DateTime.now(),
       totalAmount: safeDouble(raw['total_amount']),
       status: raw['status']?.toString() ?? 'pending',
@@ -185,12 +186,7 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
       await _loadDetail();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi: $e'),
-            backgroundColor: const Color(0xFFB23A48),
-          ),
-        );
+        AppNotifications.showErrorSnackBar(context, 'Lỗi: $e');
       }
     } finally {
       if (mounted) setState(() => _isUpdating = false);
@@ -211,12 +207,7 @@ class _AdminOrderDetailPageState extends State<AdminOrderDetailPage> {
       await _loadDetail();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lỗi: $e'),
-            backgroundColor: const Color(0xFFB23A48),
-          ),
-        );
+        AppNotifications.showErrorSnackBar(context, 'Lỗi: $e');
       }
     } finally {
       if (mounted) setState(() => _isUpdating = false);

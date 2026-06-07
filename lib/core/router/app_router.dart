@@ -12,8 +12,14 @@ import '../../features/favorites/presentation/pages/favorites_page.dart';
 import '../../features/home/presentation/pages/home_page.dart';
 import '../../features/login/presentation/pages/login_page.dart';
 import '../../features/login/presentation/pages/register_page.dart';
+import '../../features/cart/presentation/pages/checkout_page.dart';
+import '../../features/cart/presentation/pages/e_invoice_page.dart';
+import '../../features/cart/presentation/pages/payment_qr_page.dart';
 import '../../features/product_detail/presentation/pages/product_detail_page.dart';
+import '../../features/profile/presentation/pages/order_detail_page.dart';
+import '../../features/profile/presentation/pages/order_history_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/profile/presentation/pages/edit_profile_page.dart';
 import '../../features/shell/main_shell.dart';
 import '../../features/splash/presentation/pages/splash_page.dart';
 import '../../features/store_locator/presentation/pages/store_locator_page.dart';
@@ -27,16 +33,21 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
     initialLocation: '/splash',
     refreshListenable: GoRouterRefreshStream(authCubit.stream),
     redirect: (context, state) {
+      final currentState = authCubit.state;
       final onLogin = state.matchedLocation == '/login';
+      final onRegister = state.matchedLocation == '/register';
       final onAdmin = state.matchedLocation.startsWith('/admin');
-      final isAdmin = authCubit.state.isAdmin;
 
-      // Không chặn trang chủ để đúng luồng yêu cầu, chỉ giới hạn màn admin.
-      if (onAdmin && !isAdmin) {
+      // Đang check session → giữ nguyên trang hiện tại (splash sẽ tự điều hướng)
+      if (currentState.isUnknown) return null;
+
+      // Chặn admin route với non-admin user
+      if (onAdmin && !currentState.isAdmin) {
         return '/home';
       }
 
-      if (onLogin && authCubit.state.isAuthenticated) {
+      // Đã đăng nhập mà vào login/register → về home
+      if ((onLogin || onRegister) && currentState.isAuthenticated) {
         return '/home';
       }
 
@@ -92,7 +103,14 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
               ),
             ],
           ),
-          GoRoute(path: '/cart', builder: (context, state) => const CartPage()),
+          GoRoute(
+            path: '/cart',
+            builder: (context, state) => const CartPage(),
+          ),
+          GoRoute(
+            path: '/checkout',
+            builder: (context, state) => const CheckoutPage(),
+          ),
           GoRoute(
             path: '/favorites',
             builder: (context, state) => const FavoritesPage(),
@@ -104,8 +122,45 @@ GoRouter buildAppRouter({required AuthCubit authCubit}) {
           GoRoute(
             path: '/profile',
             builder: (context, state) => const ProfilePage(),
+            routes: [
+              GoRoute(
+                path: 'edit',
+                builder: (context, state) => const EditProfilePage(),
+              ),
+              GoRoute(
+                path: 'orders',
+                builder: (context, state) => const OrderHistoryPage(),
+                routes: [
+                  GoRoute(
+                    path: ':orderId',
+                    builder: (context, state) {
+                      final orderId = int.parse(state.pathParameters['orderId'] ?? '0');
+                      return OrderDetailPage(orderId: orderId);
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         ],
+      ),
+      // ── Các trang thanh toán (không có bottom nav bar) ──────────────────
+      GoRoute(
+        path: '/payment-qr',
+        builder: (context, state) {
+          final orderId = int.parse(state.uri.queryParameters['orderId'] ?? '0');
+          final total = double.parse(state.uri.queryParameters['total'] ?? '0');
+          return PaymentQrPage(orderId: orderId, totalAmount: total);
+        },
+      ),
+      GoRoute(
+        path: '/e-invoice',
+        builder: (context, state) {
+          final orderId = int.parse(state.uri.queryParameters['orderId'] ?? '0');
+          final total = double.tryParse(state.uri.queryParameters['total'] ?? '');
+          final method = state.uri.queryParameters['method'];
+          return EInvoicePage(orderId: orderId, totalAmount: total, paymentMethod: method);
+        },
       ),
     ],
   );

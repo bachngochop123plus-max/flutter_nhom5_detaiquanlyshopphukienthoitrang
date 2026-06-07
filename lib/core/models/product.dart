@@ -11,7 +11,7 @@ class Product {
     this.gallery = const [],
     this.availableColors = const [],
     this.availableSizes = const [],
-    this.variants,
+    this.variants = const [],
   });
 
   final String id;
@@ -25,7 +25,7 @@ class Product {
   final List<String> gallery;
   final List<String> availableColors;
   final List<String> availableSizes;
-  final List<Map<String, dynamic>>? variants;
+  final List<Map<String, dynamic>> variants;
 
   Product copyWith({
     String? id,
@@ -80,6 +80,12 @@ class Product {
       price: (map['price'] as num).toDouble(),
       isDiscounted: (map['isDiscounted'] as int) == 1,
       rating: (map['rating'] as num).toDouble(),
+      variants: map['variants'] != null
+          ? List<Map<String, dynamic>>.from(
+              (map['variants'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+          : const [],
     );
   }
+
+  String get thumbnail => imageUrl;
 }

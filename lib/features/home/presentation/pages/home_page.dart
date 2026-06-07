@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/data/database_helper.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 import '../widgets/product_search_bar.dart';
@@ -106,12 +107,9 @@ class _HomePageState extends State<HomePage> {
           _syncProductsInBackground();
         } else {
           if (mounted) {
-            ScaffoldMessenger.of(context).clearSnackBars();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Đã mất kết nối mạng. Bạn đang ở chế độ ngoại tuyến.'),
-                backgroundColor: Colors.orange,
-              ),
+            AppNotifications.showErrorSnackBar(
+              context,
+              'Đã mất kết nối mạng. Bạn đang ở chế độ ngoại tuyến.',
             );
           }
         }
@@ -124,24 +122,9 @@ class _HomePageState extends State<HomePage> {
     _isSyncing = true;
 
     if (mounted) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: const [
-              Icon(Icons.wifi, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Đã khôi phục kết nối! Đang cập nhật sản phẩm mới...',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Color(0xFFC6A15B),
-          duration: Duration(seconds: 3),
-        ),
+      AppNotifications.showInfoSnackBar(
+        context,
+        'Đã khôi phục kết nối! Đang cập nhật sản phẩm mới...',
       );
     }
 
@@ -152,11 +135,9 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _currentProducts = freshProducts;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đồng bộ sản phẩm mới thành công!'),
-            backgroundColor: Colors.green,
-          ),
+        AppNotifications.showSuccessSnackBar(
+          context,
+          'Đồng bộ sản phẩm mới thành công!',
         );
       }
     } catch (e) {
@@ -706,12 +687,9 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
         _isFav = !_isFav;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isFav ? 'Đã thêm vào mục yêu thích' : 'Đã xóa khỏi mục yêu thích'),
-            duration: const Duration(seconds: 1),
-          ),
+        AppNotifications.showSuccessSnackBar(
+          context,
+          _isFav ? 'Đã thêm vào mục yêu thích' : 'Đã xóa khỏi mục yêu thích',
         );
       }
     }

@@ -1,9 +1,14 @@
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/data/catalog_repository.dart';
+import '../../../../core/services/supabase_auth_repository.dart';
+import '../../../../core/widgets/app_notifications.dart';
+import '../../../auth/presentation/cubit/auth_cubit.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -12,19 +17,52 @@ class SplashPage extends StatefulWidget {
   State<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage> {
-  final CatalogRepository _catalogRepository = GetIt.instance<CatalogRepository>();
+class _SplashPageState extends State<SplashPage>
+    with SingleTickerProviderStateMixin {
+  final CatalogRepository _catalogRepository =
+      GetIt.instance<CatalogRepository>();
+  final SupabaseAuthRepository _authRepository =
+      GetIt.instance<SupabaseAuthRepository>();
+
   bool _isLoading = true;
+
+  // ── Animation ──────────────────────────────────────────
+  late final AnimationController _animController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
+
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+
+    _fadeAnim = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeIn,
+    );
+
+    _scaleAnim = Tween<double>(begin: 0.7, end: 1.0).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.elasticOut),
+    );
+
+    _animController.forward();
     _checkInitialConnection();
   }
 
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  // ── 1. Kiểm tra kết nối ────────────────────────────────
   Future<void> _checkInitialConnection() async {
-    // Giả lập hiệu ứng loading SplashScreen nhẹ
-    await Future.delayed(const Duration(milliseconds: 800));
+    // Delay nhỏ để animation kịp render đẹp
+    await Future.delayed(const Duration(milliseconds: 1000));
 
     final connectivityResult = await Connectivity().checkConnectivity();
     final hasConnection = _hasInternet(connectivityResult);
@@ -32,66 +70,72 @@ class _SplashPageState extends State<SplashPage> {
     if (!mounted) return;
 
     if (!hasConnection) {
-      // Offline: Hỏi ý kiến người dùng
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
       _showOfflineDialog();
     } else {
-      // Online: Chạy warmUp tải Supabase
-      await _loadAndNavigate(isOffline: false);
+      await _restoreSessionAndNavigate(isOffline: false);
     }
   }
 
-  bool _hasInternet(List<ConnectivityResult> results) {
-    return results.any((result) => result != ConnectivityResult.none);
-  }
+  bool _hasInternet(List<ConnectivityResult> results) =>
+      results.any((r) => r != ConnectivityResult.none);
 
-  Future<void> _loadAndNavigate({required bool isOffline}) async {
-    setState(() {
-      _isLoading = true;
-    });
+  // ── 2. Restore session Supabase ────────────────────────
+  /// Thứ tự ưu tiên:
+  ///  a) Còn session hợp lệ → fetch profile → đi thẳng /home
+  ///  b) Không có session → đi /home (guest) hoặc /login
+  Future<void> _restoreSessionAndNavigate({required bool isOffline}) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
 
     try {
-      // Gọi warmUp và đợi hoàn thành (đảm bảo cache được nạp đầy đủ)
-      await _catalogRepository.warmUp();
-    } catch (e) {
-      debugPrint('[Splash] Lỗi khi warmUp repository: $e');
-    }
+      if (!isOffline) {
+        final profile = await _authRepository.restoreSession();
+        if (profile != null && mounted) {
+          context.read<AuthCubit>().loginSuccess(profile);
+          // Không cần warmUp riêng — đi home luôn
+          await _warmUpCatalog();
+          if (mounted) context.go('/home', extra: false);
+          return;
+        }
+      }
 
-    if (!mounted) return;
-    
-    // Điều hướng vào HomeScreen với flag isOffline tương ứng
-    context.go('/home', extra: isOffline);
+      // Không có session → warmUp catalog rồi về home (guest)
+      if (mounted) {
+        context.read<AuthCubit>().setUnauthenticated();
+      }
+      await _warmUpCatalog();
+      if (mounted) context.go('/home', extra: isOffline);
+    } catch (e) {
+      debugPrint('[Splash] error: $e');
+      if (mounted) {
+        context.read<AuthCubit>().setUnauthenticated();
+        context.go('/home', extra: isOffline);
+      }
+    }
   }
 
+  Future<void> _warmUpCatalog() async {
+    try {
+      await _catalogRepository.warmUp();
+    } catch (e) {
+      debugPrint('[Splash] warmUp error: $e');
+    }
+  }
+
+  // ── 3. Dialog offline ──────────────────────────────────
   void _showOfflineDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Mất kết nối mạng'),
-          content: const Text(
-            'Không có kết nối mạng. Bạn có muốn tiếp tục vào ứng dụng để xem dữ liệu cũ không?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _showGoodbyeView();
-              },
-              child: const Text('KHÔNG', style: TextStyle(color: Colors.red)),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                await _loadAndNavigate(isOffline: true);
-              },
-              child: const Text('CÓ', style: TextStyle(color: Colors.green)),
-            ),
-          ],
-        );
+    AppNotifications.showConfirmationDialog(
+      context,
+      title: 'Mất kết nối mạng',
+      content: 'Không có kết nối mạng. Bạn có muốn tiếp tục vào ứng dụng để xem dữ liệu đã tải trước không?',
+      confirmText: 'TIẾP TỤC',
+      cancelText: 'THOÁT',
+      onConfirm: () async {
+        await _restoreSessionAndNavigate(isOffline: true);
+      },
+      onCancel: () {
+        _showGoodbyeView();
       },
     );
   }
@@ -128,42 +172,88 @@ class _SplashPageState extends State<SplashPage> {
         );
       },
     );
-
-    Future.delayed(const Duration(seconds: 2), () {
-      exit(0);
-    });
+    Future.delayed(const Duration(seconds: 2), () => exit(0));
   }
 
+  // ── Build ──────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.shopping_bag_outlined,
-              size: 100,
-              color: Color(0xFFC6A15B),
-            ),
-            const SizedBox(height: 32),
-            if (_isLoading) ...[
-              const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFC6A15B)),
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ScaleTransition(
+                scale: _scaleAnim,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1A1A1A), Color(0xFFC6A15B)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFC6A15B).withOpacity(0.4),
+                        blurRadius: 32,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.shopping_bag_outlined,
+                    size: 64,
+                    color: Colors.white,
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 32),
               const Text(
-                'Đang chuẩn bị dữ liệu...',
-                style: TextStyle(color: Color(0xFFF6E8C7), fontSize: 16),
+                'Fashion Accessories',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
               ),
-            ] else ...[
+              const SizedBox(height: 8),
               const Text(
-                'Chờ kiểm tra kết nối...',
-                style: TextStyle(color: Color(0xFFF6E8C7), fontSize: 16),
+                'Phong cách của bạn, đẳng cấp của chúng tôi',
+                style: TextStyle(color: Color(0xFFF6E8C7), fontSize: 13),
               ),
+              const SizedBox(height: 48),
+              if (_isLoading) ...[
+                const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFFC6A15B)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Đang khởi động...',
+                  style:
+                      TextStyle(color: Color(0xFFF6E8C7), fontSize: 14),
+                ),
+              ] else ...[
+                const Text(
+                  'Đang kiểm tra kết nối...',
+                  style:
+                      TextStyle(color: Color(0xFFF6E8C7), fontSize: 14),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

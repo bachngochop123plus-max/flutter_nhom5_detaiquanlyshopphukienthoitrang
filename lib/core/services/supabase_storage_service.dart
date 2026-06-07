@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -60,6 +61,67 @@ class SupabaseStorageService {
       if (error.statusCode == '403') {
         throw Exception(
           'Khong co quyen upload anh (RLS 403). Vui long dang nhap dung tai khoan duoc cap quyen hoac cap nhat Storage policy cho bucket $_bucketName.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteUserAvatar({
+    required String userId,
+    required String fileName,
+  }) async {
+    if (!_usesSupabase) return;
+    try {
+      final storagePath = 'avatars/$userId/$fileName';
+      await Supabase.instance.client.storage
+          .from(_bucketName)
+          .remove([storagePath]);
+    } on StorageException catch (error) {
+      debugPrint('[SupabaseStorageService] deleteUserAvatar error: $error');
+    }
+  }
+
+  Future<String?> uploadUserAvatar({
+    required String userId,
+    required XFile file,
+    String? oldFileName,
+  }) async {
+    if (!_usesSupabase) {
+      return null;
+    }
+
+    // 1. Xóa ảnh cũ nếu có để tránh rác lưu trữ
+    if (oldFileName != null && oldFileName.isNotEmpty) {
+      await deleteUserAvatar(userId: userId, fileName: oldFileName);
+    }
+
+    final bytes = await file.readAsBytes();
+    final mimeType = _guessMimeType(file.name);
+    final extension = _extensionForFile(file.name);
+    // Sử dụng dấu thời gian (timestamp) để tránh trình duyệt cache ảnh cũ khi hiển thị
+    final fileName = 'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}$extension';
+    final storagePath = 'avatars/$userId/$fileName';
+
+    try {
+      await Supabase.instance.client.storage
+          .from(_bucketName)
+          .uploadBinary(
+            storagePath,
+            bytes,
+            fileOptions: FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+              contentType: mimeType,
+            ),
+          );
+
+      // Trả về tên ảnh để lưu vào database (không trả về full URL)
+      return fileName;
+    } on StorageException catch (error) {
+      if (error.statusCode == '403') {
+        throw Exception(
+          'Không có quyền upload ảnh đại diện (RLS 403). Vui lòng cập nhật Storage policy cho bucket $_bucketName.',
         );
       }
       rethrow;

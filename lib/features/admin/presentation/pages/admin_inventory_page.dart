@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/models/product.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 
 class AdminInventoryPage extends StatefulWidget {
@@ -64,39 +65,23 @@ class _AdminInventoryPageState extends State<AdminInventoryPage> {
   }
 
   Future<void> _confirmDelete(Product product) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Xác nhận xóa'),
-        content: Text('Bạn chắc chắn muốn xóa sản phẩm "${product.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.danger,
-            ),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Xóa'),
-          ),
-        ],
-      ),
-    );
+    AppNotifications.showConfirmationDialog(
+      context,
+      title: 'Xác nhận xóa',
+      content: 'Bạn chắc chắn muốn xóa sản phẩm "${product.name}"?',
+      confirmText: 'Xóa',
+      isDanger: true,
+      onConfirm: () async {
+        await _catalogRepository.deleteProduct(product.id);
+        _reloadProducts();
 
-    if (confirmed != true || !mounted) return;
-
-    await _catalogRepository.deleteProduct(product.id);
-    _reloadProducts();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Đã xóa sản phẩm: ${product.name}'),
-        backgroundColor: AppColors.danger,
-      ),
+        if (mounted) {
+          AppNotifications.showSuccessSnackBar(
+            context,
+            'Đã xóa sản phẩm: ${product.name}',
+          );
+        }
+      },
     );
   }
 
