@@ -2331,7 +2331,7 @@ class DatabaseHelper {
     final rows = await db.rawQuery('''
       SELECT
         COUNT(*)          AS total_orders,
-        COALESCE(SUM(o.total_amount), 0) AS total_revenue,
+        COALESCE(SUM(CASE WHEN o.status = 'delivered' THEN o.total_amount ELSE 0 END), 0) AS total_revenue,
         COALESCE(AVG(o.total_amount), 0) AS avg_order_value,
         SUM(CASE WHEN o.status = 'delivered'  THEN 1 ELSE 0 END) AS delivered_count,
         SUM(CASE WHEN o.status = 'processing' THEN 1 ELSE 0 END) AS processing_count,
