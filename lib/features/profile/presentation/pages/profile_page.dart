@@ -345,7 +345,17 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _logout() {
-    context.read<AuthCubit>().logout();
+    AppNotifications.showConfirmationDialog(
+      context,
+      title: 'Xác nhận đăng xuất',
+      content: 'Bạn có chắc chắn muốn đăng xuất không?',
+      confirmText: 'Đăng xuất',
+      cancelText: 'Hủy',
+      isDanger: true,
+      onConfirm: () {
+        context.read<AuthCubit>().logout();
+      },
+    );
   }
 
   @override

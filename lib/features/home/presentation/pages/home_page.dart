@@ -199,8 +199,22 @@ class _HomePageState extends State<HomePage> {
     return BlocBuilder<AuthCubit, AuthState>(
       builder: (context, authState) {
         return BaseScreen(
-          title: 'Trang chủ',
+          title: '',
           actions: [
+            IconButton(
+              tooltip: 'Làm mới sản phẩm',
+              onPressed: _isSyncing ? null : _syncProductsInBackground,
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFC6A15B),
+                      ),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
               child: Chip(
@@ -248,8 +262,18 @@ class _HomePageState extends State<HomePage> {
                   IconButton(
                     tooltip: 'Đăng xuất',
                     onPressed: () {
-                      context.read<AuthCubit>().logout();
-                      context.go('/home');
+                      AppNotifications.showConfirmationDialog(
+                        context,
+                        title: 'Xác nhận đăng xuất',
+                        content: 'Bạn có chắc chắn muốn đăng xuất không?',
+                        confirmText: 'Đăng xuất',
+                        cancelText: 'Hủy',
+                        isDanger: true,
+                        onConfirm: () {
+                          context.read<AuthCubit>().logout();
+                          context.go('/home');
+                        },
+                      );
                     },
                     icon: const Icon(Icons.logout_outlined),
                   ),
@@ -267,8 +291,18 @@ class _HomePageState extends State<HomePage> {
                   IconButton(
                     tooltip: 'Đăng xuất',
                     onPressed: () {
-                      context.read<AuthCubit>().logout();
-                      context.go('/home');
+                      AppNotifications.showConfirmationDialog(
+                        context,
+                        title: 'Xác nhận đăng xuất',
+                        content: 'Bạn có chắc chắn muốn đăng xuất không?',
+                        confirmText: 'Đăng xuất',
+                        cancelText: 'Hủy',
+                        isDanger: true,
+                        onConfirm: () {
+                          context.read<AuthCubit>().logout();
+                          context.go('/home');
+                        },
+                      );
                     },
                     icon: const Icon(Icons.logout_outlined),
                   ),

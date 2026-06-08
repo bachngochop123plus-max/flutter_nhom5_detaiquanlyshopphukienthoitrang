@@ -24,6 +24,74 @@ class CartPage extends StatelessWidget {
     return '';
   }
 
+  // ── Confirmation dialog: xóa tất cả ─────────────────────────────────────
+
+  Future<void> _confirmClearAll(BuildContext context) async {
+    final cubit = context.read<CartCubit>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: const Color(0xFFB23A48).withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.delete_sweep_outlined,
+            color: Color(0xFFB23A48),
+            size: 30,
+          ),
+        ),
+        title: const Text(
+          'Xoá tất cả sản phẩm?',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+        ),
+        content: const Text(
+          'Tất cả sản phẩm trong giỏ hàng sẽ bị xoá.\nBạn có chắc chắn muốn tiếp tục không?',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(120, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Huỷ'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB23A48),
+              minimumSize: const Size(120, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Xoá tất cả'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      cubit.clear();
+    }
+  }
+
   // ── Bottom sheet chỉnh variant (giống Shopee) ─────────────────────────────
 
   void _showVariantSheet(BuildContext context, CartItem item) {
@@ -35,10 +103,8 @@ class CartPage extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (sheetCtx) => _VariantEditorSheet(
-        item: item,
-        cartCubit: context.read<CartCubit>(),
-      ),
+      builder: (sheetCtx) =>
+          _VariantEditorSheet(item: item, cartCubit: context.read<CartCubit>()),
     );
   }
 
@@ -56,7 +122,7 @@ class CartPage extends StatelessWidget {
           builder: (context, state) {
             if (state.items.isEmpty) return const SizedBox();
             return TextButton(
-              onPressed: () => context.read<CartCubit>().clear(),
+              onPressed: () => _confirmClearAll(context),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFFB23A48),
               ),
@@ -76,15 +142,15 @@ class CartPage extends StatelessWidget {
 
                 return ListView.separated(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 20),
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
                   itemCount: state.itemList.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 16),
                   itemBuilder: (context, index) {
                     final item = state.itemList[index];
-                    final isSelected =
-                        state.selectedItemKeys.contains(item.id);
-                    return _buildCartItem(
-                        context, item, isSelected, isDark);
+                    final isSelected = state.selectedItemKeys.contains(item.id);
+                    return _buildCartItem(context, item, isSelected, isDark);
                   },
                 );
               },
@@ -112,9 +178,8 @@ class CartPage extends StatelessWidget {
           Text(
             'Giỏ hàng của bạn đang trống',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color:
-                      Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 24),
           FilledButton(
@@ -145,7 +210,8 @@ class CartPage extends StatelessWidget {
     );
     final theme = Theme.of(context);
     final label = _variantLabel(item);
-    final hasVariants = item.product.availableColors.isNotEmpty ||
+    final hasVariants =
+        item.product.availableColors.isNotEmpty ||
         item.product.availableSizes.isNotEmpty;
 
     return Container(
@@ -199,8 +265,10 @@ class CartPage extends StatelessWidget {
                           color: Colors.grey,
                         ),
                       )
-                    : const Icon(Icons.inventory_2_outlined,
-                        color: Colors.grey),
+                    : const Icon(
+                        Icons.inventory_2_outlined,
+                        color: Colors.grey,
+                      ),
               ),
 
               const SizedBox(width: 12),
@@ -208,8 +276,9 @@ class CartPage extends StatelessWidget {
               // ── Product info ───────────────────────────────────────
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12)
-                      .copyWith(right: 12),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                  ).copyWith(right: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -220,8 +289,7 @@ class CartPage extends StatelessWidget {
                           Expanded(
                             child: Text(
                               item.product.name,
-                              style: theme.textTheme.titleSmall
-                                  ?.copyWith(
+                              style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                               maxLines: 2,
@@ -229,13 +297,15 @@ class CartPage extends StatelessWidget {
                             ),
                           ),
                           GestureDetector(
-                            onTap: () => context
-                                .read<CartCubit>()
-                                .remove(item.id),
+                            onTap: () =>
+                                context.read<CartCubit>().remove(item.id),
                             child: const Padding(
                               padding: EdgeInsets.only(left: 8),
-                              child: Icon(Icons.close_rounded,
-                                  size: 20, color: Colors.grey),
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 20,
+                                color: Colors.grey,
+                              ),
                             ),
                           ),
                         ],
@@ -245,14 +315,14 @@ class CartPage extends StatelessWidget {
                       if (hasVariants) ...[
                         const SizedBox(height: 6),
                         GestureDetector(
-                          onTap: () =>
-                              _showVariantSheet(context, item),
+                          onTap: () => _showVariantSheet(context, item),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
-                              color: theme
-                                  .colorScheme.surfaceContainerHighest,
+                              color: theme.colorScheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                 color: theme.colorScheme.outlineVariant
@@ -264,13 +334,9 @@ class CartPage extends StatelessWidget {
                               children: [
                                 Flexible(
                                   child: Text(
-                                    label.isNotEmpty
-                                        ? label
-                                        : 'Chọn phân loại',
-                                    style: theme.textTheme.labelSmall
-                                        ?.copyWith(
-                                      color: theme.colorScheme
-                                          .onSurfaceVariant,
+                                    label.isNotEmpty ? label : 'Chọn phân loại',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -279,8 +345,7 @@ class CartPage extends StatelessWidget {
                                 Icon(
                                   Icons.keyboard_arrow_down_rounded,
                                   size: 14,
-                                  color: theme
-                                      .colorScheme.onSurfaceVariant,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ],
                             ),
@@ -290,18 +355,17 @@ class CartPage extends StatelessWidget {
                         const SizedBox(height: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: theme
-                                .colorScheme.surfaceContainerHighest,
+                            color: theme.colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             label,
-                            style: theme.textTheme.labelSmall
-                                ?.copyWith(
-                              color:
-                                  theme.colorScheme.onSurfaceVariant,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ),
@@ -311,14 +375,11 @@ class CartPage extends StatelessWidget {
 
                       // Price + quantity stepper
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            currencyFormat
-                                .format(item.product.price),
-                            style:
-                                theme.textTheme.titleMedium?.copyWith(
+                            currencyFormat.format(item.product.price),
+                            style: theme.textTheme.titleMedium?.copyWith(
                               color: const Color(0xFFB9852E),
                               fontWeight: FontWeight.w700,
                             ),
@@ -356,8 +417,7 @@ class CartPage extends StatelessWidget {
         final totalAmount = state.selectedTotal;
 
         return Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
             boxShadow: [
@@ -375,8 +435,7 @@ class CartPage extends StatelessWidget {
                 Checkbox(
                   value: isAllSelected,
                   activeColor: const Color(0xFFC6A15B),
-                  onChanged: (_) =>
-                      context.read<CartCubit>().toggleAll(),
+                  onChanged: (_) => context.read<CartCubit>().toggleAll(),
                 ),
                 const Text('Tất cả'),
                 const Spacer(),
@@ -387,13 +446,10 @@ class CartPage extends StatelessWidget {
                     const Text('Tổng thanh toán'),
                     Text(
                       currencyFormat.format(totalAmount),
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(
-                            color: const Color(0xFFB9852E),
-                            fontWeight: FontWeight.w700,
-                          ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: const Color(0xFFB9852E),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -409,10 +465,11 @@ class CartPage extends StatelessWidget {
                         },
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFFC6A15B),
-                    disabledBackgroundColor:
-                        Colors.grey.withValues(alpha: 0.3),
+                    disabledBackgroundColor: Colors.grey.withValues(alpha: 0.3),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
                   ),
                   child: Text('Mua hàng ($selectedCount)'),
                 ),
@@ -509,7 +566,9 @@ class _QuantityStepperState extends State<_QuantityStepper> {
         children: [
           // Nút giảm
           InkWell(
-            borderRadius: const BorderRadius.horizontal(left: Radius.circular(8)),
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(8),
+            ),
             onTap: () => cubit.decrement(widget.item.id),
             child: const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
@@ -534,7 +593,9 @@ class _QuantityStepperState extends State<_QuantityStepper> {
           Container(width: 1, color: theme.colorScheme.outlineVariant),
           // Nút tăng — disabled khi đạt tối đa
           InkWell(
-            borderRadius: const BorderRadius.horizontal(right: Radius.circular(8)),
+            borderRadius: const BorderRadius.horizontal(
+              right: Radius.circular(8),
+            ),
             onTap: atMax
                 ? () {
                     ScaffoldMessenger.of(context).clearSnackBars();
@@ -551,7 +612,9 @@ class _QuantityStepperState extends State<_QuantityStepper> {
               child: Icon(
                 Icons.add,
                 size: 16,
-                color: atMax ? theme.colorScheme.onSurface.withValues(alpha: 0.3) : null,
+                color: atMax
+                    ? theme.colorScheme.onSurface.withValues(alpha: 0.3)
+                    : null,
               ),
             ),
           ),
@@ -566,10 +629,7 @@ class _QuantityStepperState extends State<_QuantityStepper> {
 // ════════════════════════════════════════════════════════════════════════════
 
 class _VariantEditorSheet extends StatefulWidget {
-  const _VariantEditorSheet({
-    required this.item,
-    required this.cartCubit,
-  });
+  const _VariantEditorSheet({required this.item, required this.cartCubit});
 
   final CartItem item;
   final CartCubit cartCubit;
@@ -622,11 +682,13 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
 
     // Sau khi đổi variant, key của item có thể đã thay đổi —
     // tính lại key mới để cập nhật quantity đúng chỗ.
-    final userId = cubit.state.items.keys
-        .where((k) => k.startsWith(widget.item.product.id))
-        .firstOrNull
-        ?.split('_')
-        .last ?? 'guest';
+    final userId =
+        cubit.state.items.keys
+            .where((k) => k.startsWith(widget.item.product.id))
+            .firstOrNull
+            ?.split('_')
+            .last ??
+        'guest';
     final newKey =
         '${widget.item.product.id}_${_color ?? "none"}_${_size ?? "none"}_$userId';
     final newItem = cubit.state.items[newKey];
@@ -673,17 +735,15 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                           product.imageUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => Container(
-                            color: theme.colorScheme
-                                .surfaceContainerHighest,
+                            color: theme.colorScheme.surfaceContainerHighest,
                             child: const Icon(
-                                Icons.image_not_supported_outlined),
+                              Icons.image_not_supported_outlined,
+                            ),
                           ),
                         )
                       : Container(
-                          color: theme
-                              .colorScheme.surfaceContainerHighest,
-                          child: const Icon(
-                              Icons.inventory_2_outlined),
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: const Icon(Icons.inventory_2_outlined),
                         ),
                 ),
               ),
@@ -703,8 +763,7 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                     const SizedBox(height: 4),
                     Text(
                       currencyFormat.format(product.price),
-                      style:
-                          theme.textTheme.titleSmall?.copyWith(
+                      style: theme.textTheme.titleSmall?.copyWith(
                         color: const Color(0xFFB9852E),
                         fontWeight: FontWeight.w700,
                       ),
@@ -744,7 +803,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: selected
                           ? const Color(0xFFC6A15B)
@@ -753,8 +814,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                       border: Border.all(
                         color: selected
                             ? const Color(0xFFC6A15B)
-                            : theme.colorScheme.outlineVariant
-                                .withValues(alpha: 0.6),
+                            : theme.colorScheme.outlineVariant.withValues(
+                                alpha: 0.6,
+                              ),
                         width: selected ? 1.5 : 1,
                       ),
                     ),
@@ -791,7 +853,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: selected
                           ? const Color(0xFFC6A15B)
@@ -800,8 +864,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                       border: Border.all(
                         color: selected
                             ? const Color(0xFFC6A15B)
-                            : theme.colorScheme.outlineVariant
-                                .withValues(alpha: 0.6),
+                            : theme.colorScheme.outlineVariant.withValues(
+                                alpha: 0.6,
+                              ),
                         width: selected ? 1.5 : 1,
                       ),
                     ),
@@ -828,25 +893,25 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
           _sectionLabel(context, 'Số lượng'),
           const SizedBox(height: 4),
           // Hiển thị tồn kho
-          Builder(builder: (ctx) {
-            final stock = _currentStock;
-            return Text(
-              'Tồn kho: $stock sản phẩm',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: stock <= 5
-                    ? Colors.orange[700]
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-            );
-          }),
+          Builder(
+            builder: (ctx) {
+              final stock = _currentStock;
+              return Text(
+                'Tồn kho: $stock sản phẩm',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: stock <= 5
+                      ? Colors.orange[700]
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
               _QtyButton(
                 icon: Icons.remove,
-                onTap: _quantity > 1
-                    ? () => setState(() => _quantity--)
-                    : null,
+                onTap: _quantity > 1 ? () => setState(() => _quantity--) : null,
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -854,7 +919,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
                   '$_quantity',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: _quantity >= _currentStock ? Colors.orange[700] : null,
+                    color: _quantity >= _currentStock
+                        ? Colors.orange[700]
+                        : null,
                   ),
                 ),
               ),
@@ -892,8 +959,7 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
               ),
               child: const Text(
                 'Xác nhận',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -905,9 +971,9 @@ class _VariantEditorSheetState extends State<_VariantEditorSheet> {
   Widget _sectionLabel(BuildContext context, String text) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+      style: Theme.of(
+        context,
+      ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 }
@@ -933,13 +999,13 @@ class _QtyButton extends StatelessWidget {
           shape: BoxShape.circle,
           color: enabled
               ? theme.colorScheme.surfaceContainerHighest
-              : theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.4),
+              : theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.4,
+                ),
           border: Border.all(
             color: enabled
                 ? theme.colorScheme.outlineVariant
-                : theme.colorScheme.outlineVariant
-                    .withValues(alpha: 0.3),
+                : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
           ),
         ),
         child: Icon(
