@@ -8,6 +8,7 @@ import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/base_screen.dart';
+import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/config/supabase_config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../../auth/presentation/cubit/auth_cubit.dart';
@@ -92,12 +93,27 @@ class _AdminPageState extends State<AdminPage> {
         return BaseScreen(
           title: 'Bảng điều khiển',
           automaticallyImplyLeading: false,
+          leading: IconButton(
+            tooltip: 'Quay lại trang chủ',
+            onPressed: () => context.go('/home'),
+            icon: const Icon(Icons.arrow_back),
+          ),
           actions: [
             IconButton(
               tooltip: 'Đăng xuất',
               onPressed: () {
-                context.read<AuthCubit>().logout();
-                context.go('/home');
+                AppNotifications.showConfirmationDialog(
+                  context,
+                  title: 'Xác nhận đăng xuất',
+                  content: 'Bạn có chắc chắn muốn đăng xuất không?',
+                  confirmText: 'Đăng xuất',
+                  cancelText: 'Hủy',
+                  isDanger: true,
+                  onConfirm: () {
+                    context.read<AuthCubit>().logout();
+                    context.go('/home');
+                  },
+                );
               },
               icon: const Icon(Icons.logout_outlined),
             ),
@@ -337,6 +353,13 @@ class _AdminPageState extends State<AdminPage> {
                 description: 'Báo cáo doanh thu theo thời gian',
                 color: const Color(0xFF7B5EA7),
                 onTap: () => context.push('/admin/revenue'),
+              ),
+              _FunctionCard(
+                icon: Icons.home_outlined,
+                label: 'Trang chủ sản phẩm',
+                description: 'Quay lại cửa hàng mua sắm',
+                color: const Color(0xFFE67E22),
+                onTap: () => context.go('/home'),
               ),
             ]),
           ),

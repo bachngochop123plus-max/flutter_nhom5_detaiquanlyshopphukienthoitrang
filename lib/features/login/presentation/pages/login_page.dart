@@ -291,23 +291,6 @@ class _LoginPageState extends State<LoginPage>
                 colors: [Color(0xFF1A1A1A), Color(0xFFC6A15B)],
               ),
             ),
-            const SizedBox(height: 12),
-
-            // ── Nút đăng nhập Admin ──────────────────────
-            OutlinedButton.icon(
-              key: const Key('login_admin_button'),
-              icon: const Icon(Icons.admin_panel_settings_outlined, size: 18),
-              label: const Text('Đăng nhập với quyền Admin'),
-              onPressed: _isSubmitting ? null : () => _login(requireAdmin: true),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                side: const BorderSide(color: Color(0xFFC6A15B)),
-                foregroundColor: const Color(0xFFC6A15B),
-              ),
-            ),
             const SizedBox(height: 20),
 
             // ── Divider ──────────────────────────────────

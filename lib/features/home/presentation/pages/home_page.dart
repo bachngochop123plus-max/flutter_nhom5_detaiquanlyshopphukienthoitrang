@@ -12,6 +12,7 @@ import '../../../../core/data/database_helper.dart';
 import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
+import '../../../../core/utils/auth_guard.dart';
 import '../widgets/product_search_bar.dart';
 
 class HomePage extends StatefulWidget {
@@ -198,8 +199,22 @@ class _HomePageState extends State<HomePage> {
     return BlocBuilder<AuthCubit, AuthState>(
       builder: (context, authState) {
         return BaseScreen(
-          title: 'Trang chủ',
+          title: '',
           actions: [
+            IconButton(
+              tooltip: 'Làm mới sản phẩm',
+              onPressed: _isSyncing ? null : _syncProductsInBackground,
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFC6A15B),
+                      ),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
               child: Chip(
@@ -247,8 +262,18 @@ class _HomePageState extends State<HomePage> {
                   IconButton(
                     tooltip: 'Đăng xuất',
                     onPressed: () {
-                      context.read<AuthCubit>().logout();
-                      context.go('/home');
+                      AppNotifications.showConfirmationDialog(
+                        context,
+                        title: 'Xác nhận đăng xuất',
+                        content: 'Bạn có chắc chắn muốn đăng xuất không?',
+                        confirmText: 'Đăng xuất',
+                        cancelText: 'Hủy',
+                        isDanger: true,
+                        onConfirm: () {
+                          context.read<AuthCubit>().logout();
+                          context.go('/home');
+                        },
+                      );
                     },
                     icon: const Icon(Icons.logout_outlined),
                   ),
@@ -266,8 +291,18 @@ class _HomePageState extends State<HomePage> {
                   IconButton(
                     tooltip: 'Đăng xuất',
                     onPressed: () {
-                      context.read<AuthCubit>().logout();
-                      context.go('/home');
+                      AppNotifications.showConfirmationDialog(
+                        context,
+                        title: 'Xác nhận đăng xuất',
+                        content: 'Bạn có chắc chắn muốn đăng xuất không?',
+                        confirmText: 'Đăng xuất',
+                        cancelText: 'Hủy',
+                        isDanger: true,
+                        onConfirm: () {
+                          context.read<AuthCubit>().logout();
+                          context.go('/home');
+                        },
+                      );
                     },
                     icon: const Icon(Icons.logout_outlined),
                   ),
@@ -668,9 +703,18 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
   }
 
   Future<void> _checkFavoriteStatus() async {
+    final authState = context.read<AuthCubit>().state;
+    if (!authState.isAuthenticated) {
+      if (mounted) {
+        setState(() {
+          _isFav = false;
+        });
+      }
+      return;
+    }
     final productId = int.tryParse(widget.product.id);
     if (productId != null) {
-      final isFav = await DatabaseHelper.instance.isFavorite(1, productId);
+      final isFav = await DatabaseHelper.instance.isFavorite(authState.profile!.id, productId);
       if (mounted) {
         setState(() {
           _isFav = isFav;
@@ -680,9 +724,12 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
   }
 
   Future<void> _toggleFavorite() async {
+    if (!AuthGuard.requireLogin(context)) return;
+    final authState = context.read<AuthCubit>().state;
+    final userId = authState.profile!.id;
     final productId = int.tryParse(widget.product.id);
     if (productId != null) {
-      final newFav = await DatabaseHelper.instance.toggleFavorite(1, productId);
+      final newFav = await DatabaseHelper.instance.toggleFavorite(userId, productId);
       setState(() {
         _isFav = newFav;
       });
