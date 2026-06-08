@@ -50,6 +50,11 @@ class _AdminInventoryPageState extends State<AdminInventoryPage> {
     });
   }
 
+  Future<void> _handleRefresh() async {
+    await _catalogRepository.refreshProducts();
+    _reloadProducts();
+  }
+
   void _applyFilter() {
     final q = _searchQuery.trim().toLowerCase();
     if (q.isEmpty) {
@@ -200,39 +205,39 @@ class _AdminInventoryPageState extends State<AdminInventoryPage> {
                         Icon(
                           Icons.inventory_2_outlined,
                           size: 64,
-                          color: AppColors.luxuryGold.withValues(alpha: 0.35),
+                          color: AppColors.softGray.withValues(alpha: 0.5),
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          _searchQuery.isEmpty
-                              ? 'Chưa có sản phẩm nào'
-                              : 'Không tìm thấy sản phẩm',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: AppColors.softGray,
-                          ),
+                        const Text(
+                          'Không tìm thấy sản phẩm nào.',
+                          style: TextStyle(color: AppColors.softGray),
                         ),
                       ],
                     ),
                   )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                    itemCount: _filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final product = _filtered[index];
-                      return _ProductTile(
-                        product: product,
-                        currencyFmt: _currencyFmt,
-                        onEdit: () async {
-                          final updated = await context.push<bool>(
-                            '/admin/inventory/edit',
-                            extra: product,
-                          );
-                          if (updated == true) _reloadProducts();
-                        },
-                        onDelete: () => _confirmDelete(product),
-                      );
-                    },
+                : RefreshIndicator(
+                    onRefresh: _handleRefresh,
+                    color: AppColors.luxuryGold,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                      itemCount: _filtered.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final product = _filtered[index];
+                        return _ProductTile(
+                          product: product,
+                          currencyFmt: _currencyFmt,
+                          onEdit: () async {
+                            final updated = await context.push<bool>(
+                              '/admin/inventory/edit',
+                              extra: product,
+                            );
+                            if (updated == true) _reloadProducts();
+                          },
+                          onDelete: () => _confirmDelete(product),
+                        );
+                      },
+                    ),
                   ),
           ),
         ],
@@ -299,7 +304,7 @@ class _ProductTile extends StatelessWidget {
                       ? CachedNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => _placeholder(),
+                          errorWidget: (context, url, error) => _placeholder(),
                         )
                       : _placeholder(),
                 ),

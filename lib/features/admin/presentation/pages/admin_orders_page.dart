@@ -310,7 +310,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                         : ListView.separated(
                             padding: const EdgeInsets.all(16),
                             itemCount: _orders.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (context, index) =>
                                 const SizedBox(height: 10),
                             itemBuilder: (context, index) => _OrderCard(
                               order: _orders[index],
@@ -479,14 +479,12 @@ class _FilterPanel extends StatelessWidget {
 
   Widget _buildStatusDropdown(BuildContext context) {
     final theme = Theme.of(context);
-    return DropdownButtonFormField<String?>(
-      value: statusFilter,
-      isDense: true,
+    return InputDecorator(
       decoration: InputDecoration(
         labelText: 'Trạng thái',
         labelStyle: theme.textTheme.bodySmall,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
@@ -501,19 +499,28 @@ class _FilterPanel extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppColors.luxuryGold),
+          borderSide: const BorderSide(
+            color: AppColors.luxuryGold,
+          ),
         ),
       ),
-      items: _kOrderStatuses
-          .map((entry) => DropdownMenuItem<String?>(
-                value: entry.$1,
-                child: Text(
-                  entry.$2,
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ))
-          .toList(),
-      onChanged: onStatusChanged,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: statusFilter,
+          isExpanded: true,
+          isDense: true,
+          items: _kOrderStatuses
+              .map((entry) => DropdownMenuItem<String?>(
+                    value: entry.$1,
+                    child: Text(
+                      entry.$2,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ))
+              .toList(),
+          onChanged: onStatusChanged,
+        ),
+      ),
     );
   }
 }
@@ -709,14 +716,12 @@ class _CompactDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DropdownButtonFormField<T>(
-      value: value,
-      isDense: true,
+    return InputDecorator(
       decoration: InputDecoration(
         labelText: label,
         labelStyle: theme.textTheme.bodySmall,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
@@ -734,8 +739,15 @@ class _CompactDropdown<T> extends StatelessWidget {
           borderSide: const BorderSide(color: AppColors.luxuryGold),
         ),
       ),
-      items: items,
-      onChanged: onChanged,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          isDense: true,
+          items: items,
+          onChanged: onChanged,
+        ),
+      ),
     );
   }
 }

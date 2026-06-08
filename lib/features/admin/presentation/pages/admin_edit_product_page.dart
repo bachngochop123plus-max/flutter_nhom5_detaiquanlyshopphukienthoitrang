@@ -42,7 +42,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
 
   // Gallery
   List<String> _existingGalleryUrls = [];
-  List<XFile> _newGalleryFiles = [];
+  final List<XFile> _newGalleryFiles = [];
 
   bool _saving = false;
   bool _initialLoading = true;
@@ -82,6 +82,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
     await Future.wait([
       _loadCategories(),
       if (!widget.isCreating) _loadExistingGallery(),
+      if (!widget.isCreating) _loadExistingVariants(),
     ]);
     if (mounted) setState(() => _initialLoading = false);
   }
@@ -103,6 +104,9 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
     });
   }
 
+  int _existingTotalStock = -1;
+  int? _firstVariantId;
+
   Future<void> _loadExistingGallery() async {
     if (widget.product == null) return;
     try {
@@ -113,6 +117,32 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
       setState(() {
         _existingGalleryUrls = urls.where((u) => u != main).toList();
       });
+    } catch (_) {}
+  }
+
+  Future<void> _loadExistingVariants() async {
+    if (widget.product == null) return;
+    try {
+      final variants =
+          await _catalogRepository.getVariantsForProduct(widget.product!.id);
+      if (!mounted) return;
+      if (variants.isNotEmpty) {
+        _firstVariantId = variants.first['id'] as int?;
+        int total = 0;
+        for (var v in variants) {
+          total += (v['stock'] as int?) ?? 0;
+        }
+        setState(() {
+          _existingTotalStock = total;
+          if (total == 0) {
+            _stockController.text = '0';
+          }
+        });
+      } else {
+        setState(() {
+          _existingTotalStock = 0;
+        });
+      }
     } catch (_) {}
   }
 
@@ -195,6 +225,13 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
         );
       } else {
         await _catalogRepository.updateProduct(productDraft);
+        if (_existingTotalStock == 0 && _firstVariantId != null) {
+          final addedStock = int.tryParse(_stockController.text.trim()) ?? 0;
+          if (addedStock > 0) {
+            await _catalogRepository.updateVariantStock(
+                _firstVariantId!, addedStock);
+          }
+        }
       }
 
       if (!mounted) return;
@@ -245,8 +282,11 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
   }
 
   void _closeEditor([bool? result]) {
-    if (context.canPop()) context.pop(result);
-    else context.go('/admin/inventory');
+    if (context.canPop()) {
+      context.pop(result);
+    } else {
+      context.go('/admin/inventory');
+    }
   }
 
   void _showSnack(String msg, {bool isError = false}) {
@@ -309,8 +349,8 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
                             decimal: true),
                       ),
 
-                      // ── Số lượng (chỉ khi tạo mới)
-                      if (widget.isCreating) ...[
+                      // ── Số lượng (khi tạo mới hoặc hết hàng)
+                      if (widget.isCreating || _existingTotalStock == 0) ...[
                         const SizedBox(height: 12),
                         _buildStockField(),
                       ],
@@ -521,7 +561,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
                 CachedNetworkImage(
                   imageUrl: _existingMainImageUrl!,
                   fit: BoxFit.cover,
-                  errorWidget: (_, __, ___) => _imgPlaceholder(),
+                  errorWidget: (context, url, error) => _imgPlaceholder(),
                 )
               else
                 _imgPlaceholder(),
@@ -614,7 +654,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
                     child: CachedNetworkImage(
                       imageUrl: url,
                       fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => const Icon(
+                      errorWidget: (context, url, error) => const Icon(
                           Icons.broken_image_outlined,
                           color: AppColors.softGray),
                     ),
@@ -716,8 +756,7 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
     if (_categoryOptions.isEmpty) {
       return const LinearProgressIndicator(color: AppColors.luxuryGold);
     }
-    return DropdownButtonFormField<String>(
-      value: _selectedCategory,
+    return InputDecorator(
       decoration: InputDecoration(
         labelText: 'Danh mục *',
         prefixIcon: const Icon(Icons.category_outlined, size: 20),
@@ -733,11 +772,18 @@ class _AdminEditProductPageState extends State<AdminEditProductPage> {
           borderSide:
               const BorderSide(color: AppColors.luxuryGold, width: 1.5),
         ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
       ),
-      items: _categoryOptions
-          .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
-          .toList(),
-      onChanged: (v) => setState(() => _selectedCategory = v),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCategory,
+          isExpanded: true,
+          items: _categoryOptions
+              .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
+              .toList(),
+          onChanged: (v) => setState(() => _selectedCategory = v),
+        ),
+      ),
     );
   }
 }

@@ -293,13 +293,21 @@ class _AdminRevenuePageState extends State<AdminRevenuePage> {
 
       final status = o['status']?.toString() ?? 'pending';
       final totalAmt = safeDouble(o['total_amount']);
+      final isDelivered = status == 'delivered';
 
-      totalRevenue += totalAmt;
+      if (isDelivered) {
+        totalRevenue += totalAmt;
+      }
 
-      if (status == 'delivered') delivered++;
-      else if (status == 'processing') processing++;
-      else if (status == 'shipped') shipped++;
-      else if (status == 'pending') pending++;
+      if (isDelivered) {
+        delivered++;
+      } else if (status == 'processing') {
+        processing++;
+      } else if (status == 'shipped') {
+        shipped++;
+      } else if (status == 'pending') {
+        pending++;
+      }
 
       if (!byDayMap.containsKey(dayKey)) {
         byDayMap[dayKey] = _DayRevenue(
@@ -308,51 +316,55 @@ class _AdminRevenuePageState extends State<AdminRevenuePage> {
       final curDay = byDayMap[dayKey]!;
       byDayMap[dayKey] = _DayRevenue(
         day: curDay.day,
-        revenue: curDay.revenue + totalAmt,
+        revenue: curDay.revenue + (isDelivered ? totalAmt : 0),
         orders: curDay.orders + 1,
       );
 
       final items = o['order_items'] as List<dynamic>? ?? [];
-      for (var rawItem in items) {
-        final i = Map<String, dynamic>.from(rawItem as Map);
-        final qty = safeInt(i['quantity']);
-        final price = safeDouble(i['price_at_purchase']);
-        final itemRev = qty * price;
+      
+      // Top products and categories ONLY calculated from delivered orders
+      if (isDelivered) {
+        for (var rawItem in items) {
+          final i = Map<String, dynamic>.from(rawItem as Map);
+          final qty = safeInt(i['quantity']);
+          final price = safeDouble(i['price_at_purchase']);
+          final itemRev = qty * price;
 
-        final pv = i['product_variants'] != null
-            ? Map<String, dynamic>.from(i['product_variants'] as Map)
-            : null;
-        final p = pv?['products'] != null
-            ? Map<String, dynamic>.from(pv!['products'] as Map)
-            : null;
-        final c = p?['categories'] != null
-            ? Map<String, dynamic>.from(p!['categories'] as Map)
-            : null;
+          final pv = i['product_variants'] != null
+              ? Map<String, dynamic>.from(i['product_variants'] as Map)
+              : null;
+          final p = pv?['products'] != null
+              ? Map<String, dynamic>.from(pv!['products'] as Map)
+              : null;
+          final c = p?['categories'] != null
+              ? Map<String, dynamic>.from(p!['categories'] as Map)
+              : null;
 
-        final prodName = p?['name']?.toString() ?? '—';
-        final catName = c?['name']?.toString() ?? '—';
+          final prodName = p?['name']?.toString() ?? '—';
+          final catName = c?['name']?.toString() ?? '—';
 
-        if (!topProductsMap.containsKey(prodName)) {
+          if (!topProductsMap.containsKey(prodName)) {
+            topProductsMap[prodName] = _TopProduct(
+                name: prodName, totalRevenue: 0, totalQty: 0);
+          }
+          final curP = topProductsMap[prodName]!;
           topProductsMap[prodName] = _TopProduct(
-              name: prodName, totalRevenue: 0, totalQty: 0);
-        }
-        final curP = topProductsMap[prodName]!;
-        topProductsMap[prodName] = _TopProduct(
-          name: prodName,
-          totalRevenue: curP.totalRevenue + itemRev,
-          totalQty: curP.totalQty + qty,
-        );
+            name: prodName,
+            totalRevenue: curP.totalRevenue + itemRev,
+            totalQty: curP.totalQty + qty,
+          );
 
-        if (!byCategoryMap.containsKey(catName)) {
+          if (!byCategoryMap.containsKey(catName)) {
+            byCategoryMap[catName] = _CategoryRevenue(
+                name: catName, revenue: 0, qty: 0);
+          }
+          final curC = byCategoryMap[catName]!;
           byCategoryMap[catName] = _CategoryRevenue(
-              name: catName, revenue: 0, qty: 0);
+            name: catName,
+            revenue: curC.revenue + itemRev,
+            qty: curC.qty + qty,
+          );
         }
-        final curC = byCategoryMap[catName]!;
-        byCategoryMap[catName] = _CategoryRevenue(
-          name: catName,
-          revenue: curC.revenue + itemRev,
-          qty: curC.qty + qty,
-        );
       }
     }
 
@@ -1131,14 +1143,12 @@ class _RevDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DropdownButtonFormField<T>(
-      value: value,
-      isDense: true,
+    return InputDecorator(
       decoration: InputDecoration(
         labelText: label,
         labelStyle: theme.textTheme.bodySmall,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
@@ -1157,8 +1167,15 @@ class _RevDropdown<T> extends StatelessWidget {
               const BorderSide(color: AppColors.luxuryGold),
         ),
       ),
-      items: items,
-      onChanged: onChanged,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          isDense: true,
+          items: items,
+          onChanged: onChanged,
+        ),
+      ),
     );
   }
 }
@@ -1416,7 +1433,9 @@ class _LineChartPainter extends CustomPainter {
 
     // Fill
     final fillPath = Path()..moveTo(points.first.dx, _padT + chartH);
-    for (final p in points) fillPath.lineTo(p.dx, p.dy);
+    for (final p in points) {
+      fillPath.lineTo(p.dx, p.dy);
+    }
     fillPath
       ..lineTo(points.last.dx, _padT + chartH)
       ..close();

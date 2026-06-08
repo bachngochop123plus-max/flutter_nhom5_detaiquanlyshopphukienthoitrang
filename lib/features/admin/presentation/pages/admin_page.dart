@@ -8,6 +8,8 @@ import '../../../../core/data/catalog_repository.dart';
 import '../../../../core/data/database_helper.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/base_screen.dart';
+import '../../../../core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../../auth/presentation/cubit/auth_cubit.dart';
 
 class AdminPage extends StatefulWidget {
@@ -35,15 +37,49 @@ class _AdminPageState extends State<AdminPage> {
   Future<void> _loadStats() async {
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
+    final isSupa = SupabaseConfig.instance.isConfigured;
 
-    final summary = await _db.getRevenueSummary(from: startOfDay, to: today);
+    int ordersCount = 0;
+    double revenue = 0;
+
+    if (isSupa) {
+      final client = Supabase.instance.client;
+      try {
+        final rows = await client
+            .from('orders')
+            .select('total_amount, status')
+            .gte('order_date', startOfDay.toIso8601String())
+            .lte('order_date', today.toIso8601String())
+            .neq('status', 'cancelled') as List<dynamic>;
+
+        ordersCount = rows.length;
+        for (var row in rows) {
+          final amt = row['total_amount'];
+          final status = row['status']?.toString();
+          if (status == 'delivered') {
+            if (amt is num) {
+              revenue += amt.toDouble();
+            } else if (amt is String) {
+              revenue += double.tryParse(amt) ?? 0.0;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Supabase loadStats error: $e');
+      }
+    } else {
+      final summary = await _db.getRevenueSummary(from: startOfDay, to: today);
+      ordersCount = (summary['total_orders'] as num? ?? 0).toInt();
+      revenue = (summary['total_revenue'] as num? ?? 0).toDouble();
+    }
+
     final products = _catalogRepo.getProducts();
 
     if (!mounted) return;
     setState(() {
       _totalProducts = products.length;
-      _totalOrders = (summary['total_orders'] as num? ?? 0).toInt();
-      _revenueToday = (summary['total_revenue'] as num? ?? 0).toDouble();
+      _totalOrders = ordersCount;
+      _revenueToday = revenue;
       _statsLoaded = true;
     });
   }
