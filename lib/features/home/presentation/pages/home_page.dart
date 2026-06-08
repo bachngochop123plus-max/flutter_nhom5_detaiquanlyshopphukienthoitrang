@@ -12,6 +12,7 @@ import '../../../../core/data/database_helper.dart';
 import '../../../../core/widgets/app_notifications.dart';
 import '../../../../core/widgets/base_screen.dart';
 import '../../../auth/presentation/cubit/auth_cubit.dart';
+import '../../../../core/utils/auth_guard.dart';
 import '../widgets/product_search_bar.dart';
 
 class HomePage extends StatefulWidget {
@@ -668,9 +669,18 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
   }
 
   Future<void> _checkFavoriteStatus() async {
+    final authState = context.read<AuthCubit>().state;
+    if (!authState.isAuthenticated) {
+      if (mounted) {
+        setState(() {
+          _isFav = false;
+        });
+      }
+      return;
+    }
     final productId = int.tryParse(widget.product.id);
     if (productId != null) {
-      final isFav = await DatabaseHelper.instance.isFavorite(1, productId);
+      final isFav = await DatabaseHelper.instance.isFavorite(authState.profile!.id, productId);
       if (mounted) {
         setState(() {
           _isFav = isFav;
@@ -680,9 +690,12 @@ class _ProductCardState extends State<_ProductCard> with SingleTickerProviderSta
   }
 
   Future<void> _toggleFavorite() async {
+    if (!AuthGuard.requireLogin(context)) return;
+    final authState = context.read<AuthCubit>().state;
+    final userId = authState.profile!.id;
     final productId = int.tryParse(widget.product.id);
     if (productId != null) {
-      final newFav = await DatabaseHelper.instance.toggleFavorite(1, productId);
+      final newFav = await DatabaseHelper.instance.toggleFavorite(userId, productId);
       setState(() {
         _isFav = newFav;
       });

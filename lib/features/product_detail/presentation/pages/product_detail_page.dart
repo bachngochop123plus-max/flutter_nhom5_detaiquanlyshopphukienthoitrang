@@ -179,10 +179,19 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   }
 
   Future<void> _checkFavoriteStatus() async {
+    final authState = context.read<AuthCubit>().state;
+    if (!authState.isAuthenticated) {
+      if (mounted) {
+        setState(() {
+          _isFavorite = false;
+        });
+      }
+      return;
+    }
     final productId = int.tryParse(widget.product.id);
     if (productId == null) return;
     try {
-      final isFav = await DatabaseHelper.instance.isFavorite(1, productId);
+      final isFav = await DatabaseHelper.instance.isFavorite(authState.profile!.id, productId);
       if (mounted) {
         setState(() {
           _isFavorite = isFav;
@@ -631,11 +640,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     ),
                     onPressed: () async {
                       if (!AuthGuard.requireLogin(context)) return;
+                      final authState = context.read<AuthCubit>().state;
+                      final userId = authState.profile!.id;
                       final productId = int.tryParse(widget.product.id);
                       if (productId == null) return;
 
                       final isFav = await DatabaseHelper.instance.toggleFavorite(
-                        1,
+                        userId,
                         productId,
                       );
                       if (mounted) {

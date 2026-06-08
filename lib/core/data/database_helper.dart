@@ -1097,27 +1097,49 @@ class DatabaseHelper {
     await db.delete(productsTable, where: 'id = ?', whereArgs: [productId]);
   }
 
-  Future<List<Product>> getFavorites() async {
+  Future<List<Product>> getFavorites(String userId) async {
     final db = await database;
-    final userId = await _ensureLegacyDefaultUser(db);
     final rows = await getFavoritesForUser(userId);
     final products = <Product>[];
     for (final row in rows) {
-      products.add(await _toLegacyProduct(db, row));
+      final productId = (row['product_id'] ?? row['id']) as int;
+      final productRows = await db.rawQuery('''
+        SELECT p.*, c.name AS category_name
+        FROM $productsTable p
+        JOIN $categoriesTable c ON c.id = p.category_id
+        WHERE p.id = ?
+        LIMIT 1
+      ''', [productId]);
+      if (productRows.isNotEmpty) {
+        products.add(await _toLegacyProduct(db, productRows.first));
+      }
     }
     return products;
   }
 
-  Future<void> removeFavorite(String productId) async {
+  Future<void> removeFavorite(String userId, String productId) async {
     final parsedId = _parseLegacyProductId(productId);
     if (parsedId == null) return;
 
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        await client
+            .from('favorites')
+            .delete()
+            .eq('user_id', userId)
+            .eq('product_id', parsedId);
+      } catch (e) {
+        debugPrint('[removeFavorite] Supabase error: $e');
+      }
+    }
+
     final db = await database;
-    final userId = await _ensureLegacyDefaultUser(db);
+    final localUserId = int.tryParse(userId) ?? 1;
     await db.delete(
       favoritesTable,
       where: 'user_id = ? AND product_id = ?',
-      whereArgs: [userId, parsedId],
+      whereArgs: [localUserId, parsedId],
     );
   }
 
@@ -1236,7 +1258,22 @@ class DatabaseHelper {
 
   // ── Favorites ────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, Object?>>> getFavoritesForUser(int userId) async {
+  Future<List<Map<String, Object?>>> getFavoritesForUser(String userId) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        final rows = await client
+            .from('v_user_favorites')
+            .select()
+            .eq('user_id', userId)
+            as List<dynamic>;
+        return rows.map((e) => Map<String, Object?>.from(e as Map)).toList();
+      } catch (e) {
+        debugPrint('[getFavoritesForUser] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
+    final localUserId = int.tryParse(userId) ?? 1;
     final db = await database;
     return db.rawQuery(
       '''
@@ -1246,43 +1283,99 @@ class DatabaseHelper {
       WHERE f.user_id = ?
       ORDER BY f.added_at DESC
     ''',
-      [userId],
+      [localUserId],
     );
   }
 
-  Future<bool> isFavorite(int userId, int productId) async {
+  Future<bool> isFavorite(String userId, int productId) async {
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        final rows = await client
+            .from('favorites')
+            .select()
+            .eq('user_id', userId)
+            .eq('product_id', productId);
+        return (rows as List).isNotEmpty;
+      } catch (e) {
+        debugPrint('[isFavorite] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
+    final localUserId = int.tryParse(userId) ?? 1;
     final db = await database;
     final rows = await db.query(
       favoritesTable,
       where: 'user_id = ? AND product_id = ?',
-      whereArgs: [userId, productId],
+      whereArgs: [localUserId, productId],
       limit: 1,
     );
     return rows.isNotEmpty;
   }
 
-  Future<bool> toggleFavorite(int userId, int productId) async {
-    final db = await database;
+  Future<bool> toggleFavorite(String userId, int productId) async {
     final exists = await isFavorite(userId, productId);
+    if (SupabaseConfig.instance.isConfigured) {
+      try {
+        final client = Supabase.instance.client;
+        if (exists) {
+          await client
+              .from('favorites')
+              .delete()
+              .eq('user_id', userId)
+              .eq('product_id', productId);
+          try {
+            final localUserId = int.tryParse(userId) ?? 1;
+            final db = await database;
+            await db.delete(
+              favoritesTable,
+              where: 'user_id = ? AND product_id = ?',
+              whereArgs: [localUserId, productId],
+            );
+          } catch (_) {}
+          return false;
+        } else {
+          await client.from('favorites').insert({
+            'user_id': userId,
+            'product_id': productId,
+          });
+          try {
+            final localUserId = int.tryParse(userId) ?? 1;
+            final db = await database;
+            await db.insert(favoritesTable, {
+              'user_id': localUserId,
+              'product_id': productId,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          } catch (_) {}
+          return true;
+        }
+      } catch (e) {
+        debugPrint('[toggleFavorite] Supabase error: $e. Falling back to SQLite.');
+      }
+    }
+
+    final localUserId = int.tryParse(userId) ?? 1;
+    final db = await database;
     if (exists) {
       await db.delete(
         favoritesTable,
         where: 'user_id = ? AND product_id = ?',
-        whereArgs: [userId, productId],
+        whereArgs: [localUserId, productId],
       );
       return false;
     } else {
       await db.insert(favoritesTable, {
-        'user_id': userId,
+        'user_id': localUserId,
         'product_id': productId,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
       return true;
     }
   }
 
-  Future<void> clearFavoritesForUser(int userId) async {
+  Future<void> clearFavoritesForUser(dynamic userId) async {
     final db = await database;
-    await db.delete(favoritesTable, where: 'user_id = ?', whereArgs: [userId]);
+    final localUserId = (userId is int) ? userId : (int.tryParse(userId.toString()) ?? 1);
+    await db.delete(favoritesTable, where: 'user_id = ?', whereArgs: [localUserId]);
   }
 
   // ── Products ─────────────────────────────────────────────────────────────
